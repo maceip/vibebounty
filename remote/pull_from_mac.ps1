@@ -85,6 +85,21 @@ function Pull($src, $dst) {
   scp -i $Key -o StrictHostKeyChecking=no -r "${remote}:$src" $dst 2>&1 | Tee-Object -FilePath $log -Append | Out-Null
 }
 
+# --- 1b) push eval harness + scorer UP so the Mac can score the tune offline -
+Log "--- pushing eval harness + score_on_mac.sh to the Mac ---"
+Push-Location $proj
+try {
+  scp -i $Key -o StrictHostKeyChecking=no -r "eval" "${remote}:~/bbverifier/" 2>&1 |
+    Tee-Object -FilePath $log -Append | Out-Null
+  scp -i $Key -o StrictHostKeyChecking=no "remote\score_on_mac.sh" "${remote}:~/bbverifier/" 2>&1 |
+    Tee-Object -FilePath $log -Append | Out-Null
+  # strip CRLF so bash/python don't choke on Windows line endings
+  ssh -i $Key -o StrictHostKeyChecking=no $remote `
+    "perl -pi -e 's/\r`$//' ~/bbverifier/score_on_mac.sh ~/bbverifier/eval/*.py 2>/dev/null" 2>&1 |
+    Tee-Object -FilePath $log -Append | Out-Null
+  Log "pushed eval/ + score_on_mac.sh (CRLF normalized)"
+} catch { Log "push step warning: $_" } finally { Pop-Location }
+
 # --- 2) diagnose ------------------------------------------------------------
 Log "--- remote diagnosis ---"
 $diag = Rmt @'
