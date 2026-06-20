@@ -1,6 +1,7 @@
 const reports = new Map();
 let selectedId = null;
 let platform = "hackerone";
+let query = "";
 
 const $ = (s) => document.querySelector(s);
 const inboxList = $("#inbox-list");
@@ -50,7 +51,13 @@ function triageBadge(r) {
 }
 
 function renderInbox() {
-  const list = [...reports.values()].sort((a, b) => b.received_at - a.received_at);
+  let list = [...reports.values()].sort((a, b) => b.received_at - a.received_at);
+  if (query) {
+    list = list.filter((r) => (
+      `${r.title} ${r.reporter} ${r.asset} ${PLATFORM_LABEL[r.platform] || r.platform || ""} ` +
+      `${(r.verdict && r.verdict.disposition) || ""} ${(r.corroboration && (r.corroboration.cve_ids || []).join(" ")) || ""}`
+    ).toLowerCase().includes(query));
+  }
   $("#inbox-count").textContent = list.length;
   inboxList.innerHTML = list.map((r) => `
     <div class="card ${r.id === selectedId ? "selected" : ""}" data-id="${r.id}">
@@ -137,7 +144,12 @@ function renderDetail() {
     </div>`;
 }
 
-function select(id) { selectedId = id; renderInbox(); renderDetail(); }
+function select(id) {
+  selectedId = id;
+  renderInbox();
+  renderDetail();
+  document.body.classList.add("show-detail");   // mobile: slide detail in
+}
 function upsert(r, fresh) {
   reports.set(r.id, r);
   if (r.engine) $("#engine-chip").textContent = "engine: " + r.engine;
@@ -171,6 +183,17 @@ async function post(url, body) {
     await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   } catch (e) { /* ignore */ }
 }
+
+// search filter
+$("#search").addEventListener("input", (e) => { query = e.target.value.trim().toLowerCase(); renderInbox(); });
+
+// mobile nav: sidebar drawer + list<->detail
+const body = document.body;
+$("#menu-toggle").addEventListener("click", () => body.classList.toggle("nav-open"));
+$("#scrim").addEventListener("click", () => body.classList.remove("nav-open"));
+$("#btn-back").addEventListener("click", () => body.classList.remove("show-detail"));
+document.querySelectorAll(".rail-item").forEach((el) =>
+  el.addEventListener("click", () => body.classList.remove("nav-open")));
 
 // platform selector
 $("#platform-select").addEventListener("change", (e) => {
