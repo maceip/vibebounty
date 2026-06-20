@@ -1,0 +1,22 @@
+# virtualenvs
+.venv/
+.venv-train/
+__pycache__/
+*.pyc
+
+# secrets / keys
+.hftoken
+*.pem
+.env
+
+# large data artifacts (regenerated from the corpus / pulled from the Mac)
+data/corpus/*.parquet
+data/corpus/*.csv
+data/sft/*.jsonl
+incoming_reports/
+feeds/cache/*.json
+
+# model artifacts
+adapters/
+vibethinker-bbtriage/
+*.safetensors

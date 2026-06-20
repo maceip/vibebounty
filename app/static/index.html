@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VibeBounty — Triage Sidecar</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topnav">
+    <div class="nav-left">
+      <span class="mark">⬡</span>
+      <span class="wordmark">VibeBounty</span>
+      <span class="nav-sep"></span>
+      <nav class="nav-tabs">
+        <a class="tab active">Inbox</a>
+        <a class="tab">Hacktivity</a>
+        <a class="tab">Programs</a>
+      </nav>
+    </div>
+    <div class="nav-right">
+      <label class="platform-pick">
+        <span class="pp-label">Sidecar for</span>
+        <select id="platform-select">
+          <option value="hackerone">HackerOne</option>
+          <option value="bugcrowd">Bugcrowd</option>
+          <option value="intigriti">Intigriti</option>
+          <option value="yeswehack">YesWeHack</option>
+          <option value="generic">Generic / VDP</option>
+        </select>
+      </label>
+      <span class="live"><span id="live-dot" class="dot offline"></span><span id="live-text">connecting…</span></span>
+      <span class="engine-chip" id="engine-chip" title="Active triage engine">engine: —</span>
+    </div>
+  </header>
+
+  <div class="subbar">
+    <div class="crumbs">
+      <span id="ctx-platform" class="crumb-strong">HackerOne</span>
+      <span class="crumb-dim">/ submissions queue</span>
+      <span class="badge-side">AI triage sidecar</span>
+    </div>
+    <div class="subbar-actions">
+      <button id="btn-paste" class="btn">⧉ Paste report</button>
+      <button id="btn-connect" class="btn">⚙ Connect platform</button>
+      <button id="btn-random" class="btn">+ New report</button>
+      <button id="btn-surge" class="btn btn-primary">⚡ Simulate disclosure surge</button>
+    </div>
+  </div>
+
+  <main class="layout">
+    <section class="inbox">
+      <div class="inbox-head">
+        <span>Submissions</span>
+        <span id="inbox-count" class="count">0</span>
+      </div>
+      <div id="inbox-list" class="inbox-list"></div>
+    </section>
+
+    <section class="detail" id="detail">
+      <div class="empty">
+        <div class="empty-mark">⬡</div>
+        <p>Select a submission to view the sidecar triage.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Paste modal -->
+  <div id="paste-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Paste a report from any platform</h3>
+        <button class="modal-x" data-close>×</button>
+      </div>
+      <p class="modal-sub">Copy a report from HackerOne, Bugcrowd, Intigriti, an email, or any
+        portal and paste it here. The sidecar parses, enriches, verifies its claims, and triages it
+        live — no integration required.</p>
+      <textarea id="paste-text" placeholder="Title: ...&#10;Severity: High&#10;Asset: api.example.com&#10;&#10;Description: ...&#10;&#10;Steps to reproduce: ...&#10;&#10;Impact: ..."></textarea>
+      <div class="modal-foot">
+        <span class="modal-hint">Tip: works with markdown headings (Description / Steps to reproduce / Impact).</span>
+        <button id="paste-submit" class="btn btn-primary">Triage report</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Connect modal -->
+  <div id="connect-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Connect your platform</h3>
+        <button class="modal-x" data-close>×</button>
+      </div>
+      <p class="modal-sub">VibeBounty runs <b>beside</b> your existing queue. Point any platform's
+        webhook at the sidecar, drop in the browser bookmarklet, or POST normalized JSON. Field names
+        are auto-mapped per platform.</p>
+      <div class="conn-block">
+        <label>Webhook URL (POST any platform's report payload)</label>
+        <code id="conn-webhook" class="copyable" title="click to copy">—</code>
+      </div>
+      <div class="conn-block">
+        <label>Browser bookmarklet (one-click triage of the report you're viewing)</label>
+        <code id="conn-bookmarklet" class="copyable" title="click to copy">—</code>
+      </div>
+      <div class="conn-platforms" id="conn-platforms"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

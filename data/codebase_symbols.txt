@@ -1,0 +1,25 @@
+# Demo codebase symbol index for the "acme" product.
+# One real public symbol per line. The evidence verifier flags any claim that
+# references an acme_* symbol NOT in this list as a likely fabrication (the
+# AI-slop / hallucinated-function signal). In production, generate this from
+# your real source tree (ctags / tree-sitter / language server).
+acme_auth_login
+acme_auth_logout
+acme_session_create
+acme_session_validate
+acme_token_issue
+acme_token_verify
+acme_invoice_get
+acme_invoice_render
+acme_user_lookup
+acme_search_query
+acme_link_preview_fetch
+acme_password_hash
+acme_rate_limit_check
+acme_csrf_token
+acme_admin_guard
+acme_db_query
+acme_file_upload
+acme_image_resize
+acme_webhook_dispatch
+acme_config_load
