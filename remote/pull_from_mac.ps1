@@ -16,7 +16,7 @@
       powershell -ExecutionPolicy Bypass -File remote\pull_from_mac.ps1 -MacIp 172.20.10.3
 #>
 param(
-  [string]$MacIp = "",
+  [string]$MacIp = "192.168.1.33",
   [string]$User  = "mac",
   [string]$Key   = "$env:USERPROFILE\.ssh\cactus_interop"
 )

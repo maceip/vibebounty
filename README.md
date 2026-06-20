@@ -133,6 +133,37 @@ is_duplicate_risk, reasoning, questions_for_researcher, confidence}}`.
 The `label` is the *real adjudicated outcome* — that's your ground truth.
 Hold out a chunk as a test set and re-run `baseline.py` against it.
 
+## Evaluation (`eval/`)
+
+Two harnesses, both runnable **fully offline** (no model server, no network):
+
+```bash
+# 1) score the pipeline over the held-out test split (real disclosure outcomes)
+uv run --with pandas --with pyarrow python eval/run_eval.py      # heuristic+defense baseline
+uv run python eval/run_eval.py --model-base-url http://localhost:8080/v1  # score the tuned model
+#    -> writes eval/report.json + eval/report.md (accuracy, per-class P/R/F1, confusion, severity)
+
+# 2) adversarial defense suite (injection, fabricated slop, corroborated surge)
+uv run python eval/adversarial.py
+```
+
+**Baseline (heuristic + defense layers, 300 held-out examples, offline):**
+
+| metric | value |
+|---|---|
+| accept / reject accuracy | **97.3%** |
+| disposition accuracy (9-class) | 56.3% |
+| macro-F1 | 0.191 |
+| weighted-F1 | 0.548 |
+| severity within-1 (ordinal) | 71.0% (MAE 1.00) |
+| adversarial defense suite | **6/6 pass** |
+
+Read this as the **bar fine-tuning must beat**: the rules already nail the binary
+triage decision (97%), but are weak on fine-grained 9-class disposition, rare
+classes, and historical-CVE corroboration (the cache only holds recent/KEV CVEs).
+Closing that gap is precisely the job of the fine-tuned model — re-run
+`run_eval.py --model-base-url ...` against the served tune to measure the lift.
+
 ## Next (fine-tuning)
 
 Once you have a few hundred examples and a baseline:

@@ -1,0 +1,73 @@
+{
+  "engine": "heuristic+defense",
+  "n": 300,
+  "disposition_accuracy": 0.5633,
+  "accept_reject_accuracy": 0.9733,
+  "macro_f1": 0.1911,
+  "weighted_f1": 0.5484,
+  "severity_exact": 0.3233,
+  "severity_within_1": 0.71,
+  "severity_mae": 1.0033,
+  "corroborated_surge_recall": 0.0,
+  "per_class": {
+    "valid_impactful": {
+      "precision": 0.1839,
+      "recall": 0.2963,
+      "f1": 0.227,
+      "support": 54
+    },
+    "valid_low": {
+      "precision": 0.7251,
+      "recall": 0.7321,
+      "f1": 0.7286,
+      "support": 209
+    },
+    "corroborated_surge": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 28
+    },
+    "likely_duplicate": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 6
+    },
+    "out_of_scope": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 3
+    },
+    "self_inflicted": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 0
+    }
+  },
+  "confusion": {
+    "valid_impactful": {
+      "valid_low": 38,
+      "valid_impactful": 16
+    },
+    "valid_low": {
+      "valid_low": 153,
+      "valid_impactful": 55,
+      "corroborated_surge": 1
+    },
+    "corroborated_surge": {
+      "valid_low": 14,
+      "valid_impactful": 14
+    },
+    "likely_duplicate": {
+      "valid_low": 3,
+      "valid_impactful": 2,
+      "self_inflicted": 1
+    },
+    "out_of_scope": {
+      "valid_low": 3
+    }
+  }
+}

@@ -114,10 +114,24 @@ def main() -> None:
 
     # Offline by default: unreachable model -> heuristic+defense; stub OSV network.
     os.environ["MODEL_BASE_URL"] = args.model_base_url or "http://127.0.0.1:9"
-    import feeds.enrich as fe
+    # NB: feeds/__init__.py imports the `enrich` function, which shadows the
+    # `feeds.enrich` submodule name -> fetch the real module from sys.modules.
+    import feeds.enrich  # noqa: F401  (ensures submodule is in sys.modules)
+    fe = sys.modules["feeds.enrich"]
     if not args.model_base_url:
         fe._osv_lookup = lambda *a, **k: []  # no network on the plane
-    from app import triage
+    from app import triage, evidence
+
+    def offline_triage(sub: dict) -> dict:
+        """Production defense path WITHOUT the model client (no network/retries)."""
+        corr = fe.enrich(sub, use_osv=False)
+        ev = evidence.assess(sub, corr)
+        verdict = triage._heuristic(sub, corr)
+        verdict = triage._apply_defenses(verdict, corr, ev)
+        return {"engine": "heuristic+defense", "verdict": verdict,
+                "corroboration": corr, "evidence": ev}
+
+    run_fn = triage.run if args.model_base_url else offline_triage
 
     rows = load_test(pathlib.Path(args.data), args.n)
     engine = None
@@ -127,7 +141,7 @@ def main() -> None:
     surge_tp = surge_fn = 0             # did we catch corroborated reports?
     n = 0
     for row in rows:
-        res = triage.run(row["submission"])
+        res = run_fn(row["submission"])
         engine = res["engine"]
         pred = res["verdict"].get("disposition", "?")
         g = row["gold"].get("disposition", "?")
