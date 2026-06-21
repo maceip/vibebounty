@@ -28,6 +28,8 @@ MODEL_BASE_URL = os.environ.get("MODEL_BASE_URL", "http://localhost:8080/v1")
 MODEL_NAME = os.environ.get("MODEL_NAME", "WeiboAI/VibeThinker-3B")
 MODEL_API_KEY = os.environ.get("MODEL_API_KEY", "not-needed")
 MODEL_MAX_TOKENS = int(os.environ.get("MODEL_MAX_TOKENS", "8000"))
+MODEL_TEMPERATURE = float(os.environ.get("MODEL_TEMPERATURE", "1.0"))
+MODEL_TOP_P = float(os.environ.get("MODEL_TOP_P", "0.95"))
 MODEL_TIMEOUT = float(os.environ.get("MODEL_TIMEOUT", "120"))
 
 VALID = {"valid_impactful", "valid_low", "corroborated_surge"}
@@ -118,8 +120,8 @@ def run(submission: dict) -> dict:
         client = OpenAI(base_url=MODEL_BASE_URL, api_key=MODEL_API_KEY, timeout=MODEL_TIMEOUT)
         resp = client.chat.completions.create(
             model=MODEL_NAME,
-            temperature=1.0,
-            top_p=0.95,
+            temperature=MODEL_TEMPERATURE,
+            top_p=MODEL_TOP_P,
             max_tokens=MODEL_MAX_TOKENS,
             messages=[
                 {"role": "system", "content": TRIAGE_SYSTEM + GUARD},
