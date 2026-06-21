@@ -20,8 +20,18 @@ N="${1:-20}"
 cd "$REPO" || { echo "no repo at $REPO"; exit 1; }
 mkdir -p eval logs
 echo "== deps =="
-"$PY" -m pip install -q -r requirements.txt 2>/dev/null || true
-"$PY" -c 'import openai' 2>/dev/null || "$PY" -m pip install -q openai
+UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
+if ! "$PY" -c 'import openai' 2>/dev/null; then
+  echo "  installing openai into the mlx venv via uv"
+  "$UV" pip install --python "$PY" openai >/dev/null 2>&1 || "$UV" pip install --python "$PY" openai
+fi
+"$PY" -c 'import openai, sys; print("  openai", openai.__version__)' || { echo "openai still missing"; exit 1; }
+
+# Threat-intel cache must exist or KEV corroboration cannot fire (defense case 5).
+if [ ! -f feeds/cache/kev.json ]; then
+  echo "== building threat-intel cache (KEV/NVD) =="
+  "$PY" feeds/fetch_feeds.py 2>&1 | tail -4
+fi
 
 # ---- 1. serve the tuned model (idempotent) -------------------------------
 if curl -s "http://localhost:$PORT/v1/models" >/dev/null 2>&1; then
@@ -43,8 +53,11 @@ echo; echo "== defense suite (offline, model-independent) =="
 "$PY" eval/adversarial.py
 
 # ---- 3. score the SERVED tuned model -------------------------------------
-echo; echo "== tuned model on $N held-out reports (greedy, bounded) =="
-MODEL_MAX_TOKENS=1024 MODEL_TEMPERATURE=0 MODEL_TOP_P=1.0 MODEL_TIMEOUT=180 \
+# VibeThinker emits long chain-of-thought before the JSON verdict; give it room
+# or _extract_json fails and the verdict silently drops to the heuristic.
+MAXTOK="${MODEL_MAX_TOKENS:-3072}"
+echo; echo "== tuned model on $N held-out reports (greedy, max_tokens=$MAXTOK) =="
+MODEL_MAX_TOKENS="$MAXTOK" MODEL_TEMPERATURE=0 MODEL_TOP_P=1.0 MODEL_TIMEOUT=300 \
   "$PY" eval/run_eval.py --data "$DATA" --n "$N" \
   --model-base-url "http://localhost:$PORT/v1"
 cp -f eval/report.json eval/report_model.json 2>/dev/null
