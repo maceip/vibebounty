@@ -72,6 +72,32 @@ Or load the base + adapter directly with mlx-lm without fusing
   (substate / severity / bounty / CVE), rendered as chat with reasoning targets
 - **Train loss** 3.4 → <0.7; **val loss** ~1.06
 
+## Sample verdicts
+
+```json
+// IDOR: GET /api/v2/invoices/{id} returns other tenants' invoices
+{"disposition": "valid_impactful", "severity_estimate": "high",
+ "reasoning": "IDOR / broken-authz against an authenticated API; incrementing id
+ walks the table -> crosses a real trust boundary with demonstrated impact.",
+ "confidence": 0.9}
+
+// Log4Shell report with an EXTERNAL CORROBORATION block (CVE-2021-44228, CISA KEV)
+{"disposition": "corroborated_surge", "severity_estimate": "critical",
+ "reasoning": "Maps to a publicly disclosed advisory confirmed by the live feed
+ (actively exploited) -> corroborated, not spam.",
+ "used_external_corroboration": true, "confidence": 0.9}
+```
+
+## Evaluation (held-out 300 reports, offline)
+
+| metric | heuristic + defense baseline |
+|---|---|
+| accept / reject accuracy | **97.3%** |
+| disposition accuracy (9-class) | 56.3% |
+| macro-F1 | 0.191 |
+| severity within-1 | 71.0% |
+| adversarial defense suite | **6 / 6 pass** |
+
 ## Defense layer (model-independent)
 
 Verdicts are guarded by ground-truth checks the model can't talk past:
