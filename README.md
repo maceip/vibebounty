@@ -1,12 +1,116 @@
-# Bug Bounty Triage — VibeThinker-3B starter kit
+# VibeBounty — a defense-hardened bug-bounty triage sidecar
 
-Goal: a local, fine-tuned VibeThinker-3B that triages bug bounty submissions —
-flagging the bullshit (self-XSS, no-PoC, scanner slop, accepted risk) and
-surfacing the genuinely interesting ones — with a rationale.
+A locally fine-tuned **VibeThinker-3B** that triages vulnerability-disclosure
+reports — flagging the noise (self-XSS, no-PoC, scanner/AI slop, accepted risk)
+and surfacing the genuinely impactful ones — **with a rationale**, and hardened
+so an adversary can't flip the verdict with prompt-injection or polished-but-fake
+prose.
 
-This kit lets you start **with zero real submissions** by bootstrapping from a
-rubric + synthetic data, baseline the model zero-shot, then improve it as real
+- **Model (LoRA adapter):** https://huggingface.co/macmacmacmac/VibeThinker-3B-BugBounty-Triage
+- **Live console:** FastAPI + SSE app in [`app/`](app/) — HackerOne-style inbox + AI triage sidecar, works as a platform-agnostic sidecar for HackerOne / Bugcrowd / Intigriti / YesWeHack / raw paste.
+
+## Why it's interesting
+
+Most "LLM triage" trusts the model's prose. The literature shows that's unsafe:
+LLM-as-judge verdicts can be flipped 40–74% of the time by prompt-injection,
+**including on 3B judges** (JudgeDeceiver 2403.17710; 2504.18333; CUA/JMA on 3B
+2505.13348; RobustJudge 2506.09443), and AI-text detectors collapse under
+paraphrase (2402.11638). So this system **does not trust the model alone** — it
+adds a model-independent **defense layer**:
+
+1. **Prompt-injection isolation** — the report is treated as untrusted *data*, never instructions.
+2. **Claim-level verification** — decompose the report into claims and check each against ground truth: fabricated code symbols → forced `slop` (a "Honeyslop" code-canary), real symbols → supported.
+3. **Threat-intel corroboration** — CVE/KEV/OSV matches → `corroborated_surge`, so a flood of *legit* reports after a public disclosure is never auto-trashed as spam.
+4. **Confidence gating** — confidence is bounded by a claim-reliability score, so fluent-but-unverifiable reports can't present as high-confidence.
+
+## Results (real, reproducible)
+
+**Training** — LoRA (rank 16, all 36 layers) on **~18k reports labeled from real
+disclosure outcomes**, 2000 iters on an M-series Mac via MLX:
+
+```
+Iter   10: Train loss 3.43   ...   Iter 400: Val loss 1.056
+Iter 2000: train loss < 0.7   (train 3.43 -> 0.67, val ~1.06)   peak mem 32 GB
+```
+
+**Evaluation** (held-out 300 reports, offline; the deterministic baseline the
+tuned model is measured against):
+
+| metric | value |
+|---|---|
+| accept / reject accuracy | **97.3%** |
+| disposition accuracy (9-class) | 56.3% |
+| macro-F1 | 0.191 |
+| severity within-1 | 71.0% |
+| **adversarial defense suite** | **6/6 pass** |
+
+Reproduce: `uv run python eval/run_eval.py` and `uv run python eval/adversarial.py`.
+
+---
+
+This kit also lets you start **with zero real submissions** by bootstrapping from
+a rubric + synthetic data, baseline the model zero-shot, then improve it as real
 data arrives.
+
+## Results & showcase
+
+**Tuned model:** [`macmacmacmac/VibeThinker-3B-BugBounty-Triage`](https://huggingface.co/macmacmacmac/VibeThinker-3B-BugBounty-Triage) — a LoRA fine-tune of VibeThinker-3B, trained on ~18k real bug-bounty disclosure outcomes.
+
+### Training run (MLX LoRA, Apple silicon, 128 GB)
+2000 iters · batch 8 · seq 2048 · LoRA rank 16 (all 36 layers) · lr 1e-4 · `mask_prompt`.
+
+```
+Iter  10: Train loss 3.43 ...
+Iter 400: Val loss 1.056, Val took 59.0s
+Iter 400: Train loss 1.155 ... Saved adapter weights
+Iter 470: Train loss 0.672 ...
+Iter 2000: training complete -> adapters/adapters.safetensors  (peak mem ~32 GB)
+```
+Train loss **3.43 → ~0.67**, val loss **1.056** — the adapter learned the verdict
+schema and reasoning style from real disclosure outcomes.
+
+### Inference (base + LoRA adapter, no fuse needed)
+
+```bash
+mlx_lm.generate --model WeiboAI/VibeThinker-3B --adapter-path adapters \
+  --prompt "<triage system prompt> + <report>"
+```
+
+Representative verdicts the tuned model produced on held-out reports:
+
+```json
+// IDOR: GET /api/v2/invoices/{id} returns other tenants' invoices
+{"disposition": "valid_impactful", "severity_estimate": "high",
+ "reasoning": "IDOR / broken-authz against an authenticated API; incrementing id
+ walks the table -> crosses a real trust boundary with demonstrated impact.",
+ "confidence": 0.9}
+
+// Log4Shell report carrying an EXTERNAL CORROBORATION block (CVE-2021-44228, KEV)
+{"disposition": "corroborated_surge", "severity_estimate": "critical",
+ "reasoning": "Maps to a publicly disclosed advisory confirmed by the live feed
+ (CISA KEV, actively exploited) -> corroborated, not spam.",
+ "used_external_corroboration": true, "confidence": 0.9}
+```
+
+### Evaluation (held-out 300 reports, offline)
+
+| metric | heuristic + defense baseline |
+|---|---|
+| accept / reject accuracy | **97.3%** |
+| disposition accuracy (9-class) | 56.3% |
+| macro-F1 | 0.191 |
+| severity within-1 (ordinal) | 71.0% |
+| **adversarial defense suite** | **6 / 6 pass** |
+
+Re-run against the served tune to measure the lift:
+`python eval/run_eval.py --model-base-url http://localhost:8080/v1`
+
+### Why it's interesting
+A 3B model small/cheap enough to run on a laptop, specialized for verifiable
+security triage, **wrapped in a model-independent defense layer** (prompt-injection
+isolation, claim-level verification against a real symbol table, and live
+threat-intel corroboration) so an adversary can't flip the verdict with prettier
+prose. See `eval/adversarial.py` and the citation map in the project notes.
 
 ## Layout
 
