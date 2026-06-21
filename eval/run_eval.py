@@ -135,6 +135,8 @@ def main() -> None:
 
     rows = load_test(pathlib.Path(args.data), args.n)
     engine = None
+    from collections import Counter
+    engine_counts: Counter = Counter()  # vibethinker vs heuristic-fallback
     cm: dict = {}                       # cm[gold][pred] = count
     sev_abs_err, sev_exact = [], 0
     accept_correct = 0
@@ -143,6 +145,7 @@ def main() -> None:
     for row in rows:
         res = run_fn(row["submission"])
         engine = res["engine"]
+        engine_counts[engine] += 1
         pred = res["verdict"].get("disposition", "?")
         g = row["gold"].get("disposition", "?")
         cm.setdefault(g, {}).setdefault(pred, 0)
@@ -170,8 +173,13 @@ def main() -> None:
     sev_mae = sum(sev_abs_err) / len(sev_abs_err) if sev_abs_err else 0.0
     sev_within1 = sum(e <= 1 for e in sev_abs_err) / len(sev_abs_err) if sev_abs_err else 0.0
 
+    # Format adherence: when scoring a served model, how often did the MODEL
+    # actually drive the verdict vs silently falling back to the heuristic?
+    model_share = (engine_counts.get("vibethinker", 0) / n) if n else 0.0
     report = {
         "engine": engine,
+        "engine_counts": dict(engine_counts),
+        "model_drove_share": round(model_share, 4),
         "n": n,
         "disposition_accuracy": round(acc, 4),
         "accept_reject_accuracy": round(accept_correct / n, 4) if n else 0.0,
@@ -190,6 +198,9 @@ def main() -> None:
 
     # console summary
     print(f"\nengine: {engine}    examples: {n}")
+    if len(engine_counts) > 1 or "vibethinker" in engine_counts:
+        print(f"engine mix           : {dict(engine_counts)}")
+        print(f"model drove verdict  : {model_share:6.1%}  (rest = heuristic fallback / parse fail)")
     print(f"disposition accuracy : {acc:6.1%}")
     print(f"accept/reject acc    : {accept_correct / n:6.1%}")
     print(f"macro-F1             : {macro_f1:6.3f}")
