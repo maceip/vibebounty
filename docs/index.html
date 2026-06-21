@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0c12" />
+  <title>VibeBounty — AI bug-bounty triage, in your browser</title>
+  <meta name="description" content="A defense-hardened VibeThinker-3B that triages vulnerability reports, running fully on-device via WebGPU." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="ambient" aria-hidden="true"><span class="orb orb-a"></span><span class="orb orb-b"></span><span class="orb orb-c"></span></div>
+  <div class="scrim" id="scrim"></div>
+
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="brand-mark">⬡</span><span class="brand-word">VibeBounty</span></div>
+      <nav class="rail">
+        <a class="rail-item active" title="Inbox"><span class="ri">⌂</span><span class="rl">Inbox</span></a>
+        <a class="rail-item" title="Hacktivity"><span class="ri">⚇</span><span class="rl">Hacktivity</span></a>
+        <a class="rail-item" title="Programs"><span class="ri">◈</span><span class="rl">Programs</span></a>
+        <a class="rail-item" title="Analytics"><span class="ri">▦</span><span class="rl">Analytics</span></a>
+        <a class="rail-item" title="Settings"><span class="ri">⚙</span><span class="rl">Settings</span></a>
+      </nav>
+      <div class="rail-foot">
+        <span class="engine-chip" id="engine-chip" title="Active triage engine">engine: —</span>
+        <div class="avatar" title="analyst">AN</div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-toggle" id="menu-toggle" aria-label="menu">☰</button>
+        <div class="search"><span class="search-i">⌕</span><input id="search" placeholder="Search submissions, assets, CVEs…" /></div>
+        <div class="topbar-right">
+          <button class="model-pill" id="model-pill" title="Triage model status"><span class="mp-dot" id="mp-dot"></span><span id="model-pill-text">model: not loaded</span></button>
+          <label class="platform-pick">
+            <span class="pp-label">Sidecar for</span>
+            <select id="platform-select">
+              <option value="hackerone">HackerOne</option>
+              <option value="bugcrowd">Bugcrowd</option>
+              <option value="intigriti">Intigriti</option>
+              <option value="yeswehack">YesWeHack</option>
+              <option value="generic">Generic / VDP</option>
+            </select>
+          </label>
+        </div>
+      </header>
+
+      <div class="subbar">
+        <div class="crumbs">
+          <span id="ctx-platform" class="crumb-strong">HackerOne</span>
+          <span class="crumb-dim">/ submissions</span>
+          <span class="badge-side">AI triage sidecar</span>
+        </div>
+        <div class="subbar-actions">
+          <button id="btn-paste" class="btn"><span class="bi">⧉</span><span class="bt">Paste report</span></button>
+          <button id="btn-random" class="btn"><span class="bi">+</span><span class="bt">New report</span></button>
+          <button id="btn-surge" class="btn btn-primary"><span class="bi">⚡</span><span class="bt">Simulate surge</span></button>
+        </div>
+      </div>
+
+      <div class="workspace">
+        <section class="inbox" id="inbox">
+          <div class="inbox-head">
+            <span>Submissions</span>
+            <span id="inbox-count" class="count">0</span>
+          </div>
+          <div id="inbox-list" class="inbox-list"></div>
+        </section>
+
+        <section class="detail-pane">
+          <div class="detail-topbar">
+            <button class="icon-btn" id="btn-back">‹ Inbox</button>
+            <span class="dt-title">Triage</span>
+          </div>
+          <section class="detail" id="detail">
+            <div class="empty">
+              <div class="empty-mark">⬡</div>
+              <p>Select a submission to view the sidecar triage.</p>
+            </div>
+          </section>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ BLOCKING MODEL GATE ============ -->
+  <div id="gate" class="gate">
+    <div class="gate-card">
+      <div class="gate-glow" aria-hidden="true"></div>
+      <div class="gate-brand"><span class="brand-mark">⬡</span> VibeBounty</div>
+      <h1 class="gate-title">Load the triage model to continue</h1>
+      <p class="gate-sub">This console runs the tuned <b>VibeThinker-3B</b> bug-bounty triage model.
+        It <b>never runs on our servers</b> — choose how you want to run it:</p>
+
+      <div class="gate-options" id="gate-options">
+        <button class="gate-opt" id="opt-webgpu">
+          <span class="go-ic">⚡</span>
+          <span class="go-h">Run in this browser <em>WebGPU</em></span>
+          <span class="go-d">Downloads once (~1.9&nbsp;GB), then runs fully on-device. No data leaves your machine. Needs Chrome/Edge 121+ or another WebGPU browser.</span>
+        </button>
+        <button class="gate-opt" id="opt-local">
+          <span class="go-ic">⌘</span>
+          <span class="go-h">Connect a local model</span>
+          <span class="go-d">Already serving it with <b>MLX</b>, <b>Ollama</b>, or <b>vLLM</b>? Use this UI as the frontend over an OpenAI-compatible endpoint.</span>
+        </button>
+      </div>
+
+      <!-- WebGPU progress -->
+      <div id="gate-progress" class="gate-progress hidden">
+        <div class="gp-ring"><svg viewBox="0 0 120 120"><circle class="gp-bg" cx="60" cy="60" r="52"/><circle class="gp-fg" id="gp-fg" cx="60" cy="60" r="52"/></svg><span class="gp-pct" id="gp-pct">0%</span></div>
+        <div class="gp-text" id="gp-text">Initializing WebGPU…</div>
+      </div>
+
+      <!-- Local endpoint form -->
+      <div id="gate-local" class="gate-local hidden">
+        <div class="gl-row">
+          <label>OpenAI-compatible base URL</label>
+          <input id="local-url" value="http://localhost:8080/v1" spellcheck="false" />
+        </div>
+        <div class="gl-row">
+          <label>Model name</label>
+          <input id="local-model" value="WeiboAI/VibeThinker-3B" spellcheck="false" />
+        </div>
+        <div class="gl-actions">
+          <button id="local-back" class="btn">‹ Back</button>
+          <button id="local-connect" class="btn btn-primary">Connect</button>
+        </div>
+        <details class="gl-help">
+          <summary>How do I serve it locally?</summary>
+          <pre>// MLX (Apple silicon) — the tuned adapter:
+mlx_lm.server --model WeiboAI/VibeThinker-3B \
+  --adapter-path adapters --port 8080
+
+// Ollama:
+OLLAMA_ORIGINS='*' ollama serve   # then: ollama run &lt;model&gt;
+
+// vLLM:
+vllm serve &lt;model&gt; --port 8080</pre>
+          <p class="gl-note">Tip: allow CORS from this origin so the browser can reach your endpoint
+            (MLX/vLLM expose <code>--cors</code>; Ollama uses <code>OLLAMA_ORIGINS</code>).</p>
+        </details>
+      </div>
+
+      <div id="gate-status" class="gate-status"></div>
+      <div class="gate-foot">
+        <a href="https://huggingface.co/macmacmacmac/VibeThinker-3B-BugBounty-Triage" target="_blank" rel="noopener">Model card ↗</a>
+        <span class="dotsep">·</span>
+        <a href="https://github.com/maceip/vibebounty" target="_blank" rel="noopener">Source ↗</a>
+        <span class="dotsep">·</span>
+        <span class="gate-priv">runs on-device — nothing is uploaded</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Paste modal -->
+  <div id="paste-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Paste a report from any platform</h3>
+        <button class="modal-x" data-close>×</button>
+      </div>
+      <p class="modal-sub">Copy a report from HackerOne, Bugcrowd, Intigriti, an email, or any portal and
+        paste it here. The sidecar parses, enriches, verifies its claims, and triages it live — no integration required.</p>
+      <textarea id="paste-text" placeholder="Title: ...&#10;Severity: High&#10;Asset: api.example.com&#10;&#10;Description: ...&#10;&#10;Steps to reproduce: ...&#10;&#10;Impact: ..."></textarea>
+      <div class="modal-foot">
+        <span class="modal-hint">Works with markdown headings (Description / Steps to reproduce / Impact).</span>
+        <button id="paste-submit" class="btn btn-primary">Triage report</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
