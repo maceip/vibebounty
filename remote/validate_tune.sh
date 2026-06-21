@@ -57,11 +57,17 @@ echo; echo "== defense suite (offline, model-independent) =="
 # or _extract_json fails and the verdict silently drops to the heuristic.
 MAXTOK="${MODEL_MAX_TOKENS:-3072}"
 echo; echo "== tuned model on $N held-out reports (greedy, max_tokens=$MAXTOK) =="
-MODEL_MAX_TOKENS="$MAXTOK" MODEL_TEMPERATURE=0 MODEL_TOP_P=1.0 MODEL_TIMEOUT=300 \
-  "$PY" eval/run_eval.py --data "$DATA" --n "$N" \
-  --model-base-url "http://localhost:$PORT/v1"
-cp -f eval/report.json eval/report_model.json 2>/dev/null
-cp -f eval/report.md   eval/report_model.md   2>/dev/null
+rm -f eval/report.json eval/report.md   # never let a stale report masquerade as the model's
+if ! MODEL_MAX_TOKENS="$MAXTOK" MODEL_TEMPERATURE=0 MODEL_TOP_P=1.0 MODEL_TIMEOUT=300 \
+     "$PY" eval/run_eval.py --data "$DATA" --n "$N" \
+     --model-base-url "http://localhost:$PORT/v1"; then
+  echo; echo "!! model eval FAILED (see traceback above). Aborting before the lift step"
+  echo "   so we do not report a bogus comparison."
+  exit 1
+fi
+[ -f eval/report.json ] || { echo "!! model eval produced no report.json; aborting"; exit 1; }
+cp -f eval/report.json eval/report_model.json
+cp -f eval/report.md   eval/report_model.md 2>/dev/null
 
 # ---- 4. score the heuristic+defense baseline on the SAME reports ---------
 echo; echo "== heuristic+defense baseline on the same $N reports =="

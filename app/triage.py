@@ -33,6 +33,52 @@ MODEL_TOP_P = float(os.environ.get("MODEL_TOP_P", "0.95"))
 MODEL_TIMEOUT = float(os.environ.get("MODEL_TIMEOUT", "120"))
 
 VALID = {"valid_impactful", "valid_low", "corroborated_surge"}
+SEVERITIES = {"none", "low", "medium", "high", "critical"}
+DISPOSITIONS = {
+    "valid_impactful", "valid_low", "corroborated_surge", "likely_duplicate",
+    "out_of_scope", "theoretical_no_poc", "self_inflicted", "accepted_risk", "slop",
+}
+# A tuned LM sometimes emits confidence as a word or percent instead of a float.
+_WORD_NUM = {"very high": 0.95, "high": 0.85, "medium": 0.6, "moderate": 0.6,
+             "low": 0.3, "very low": 0.15, "none": 0.1, "certain": 0.99}
+
+
+def _as_float(x, default: float = 0.5) -> float:
+    """Coerce model-supplied numbers that may arrive as words/percents/strings."""
+    if isinstance(x, bool):
+        return default
+    if isinstance(x, (int, float)):
+        return float(x)
+    if isinstance(x, str):
+        s = x.strip().lower()
+        try:
+            return float(s)
+        except ValueError:
+            pass
+        if s.endswith("%"):
+            try:
+                return float(s[:-1]) / 100.0
+            except ValueError:
+                pass
+        if s in _WORD_NUM:
+            return _WORD_NUM[s]
+    return default
+
+
+def _normalize_verdict(v: dict) -> dict:
+    """Make a model verdict schema-safe so the defense layer can't crash on drift."""
+    if not isinstance(v, dict):
+        v = {}
+    out = dict(v)
+    out["confidence"] = max(0.0, min(1.0, _as_float(v.get("confidence"), 0.5)))
+    sev = str(v.get("severity_estimate", "none")).strip().lower()
+    out["severity_estimate"] = sev if sev in SEVERITIES else "none"
+    out["disposition"] = str(v.get("disposition", "")).strip().lower()
+    out["is_duplicate_risk"] = bool(v.get("is_duplicate_risk", False))
+    q = v.get("questions_for_researcher", [])
+    out["questions_for_researcher"] = q if isinstance(q, list) else []
+    out["used_external_corroboration"] = bool(v.get("used_external_corroboration", False))
+    return out
 
 
 def _extract_json(text: str) -> dict:
@@ -128,7 +174,7 @@ def run(submission: dict) -> dict:
                 {"role": "user", "content": _render(submission, corr_block)},
             ],
         )
-        verdict = _extract_json(resp.choices[0].message.content)
+        verdict = _normalize_verdict(_extract_json(resp.choices[0].message.content))
         engine = "vibethinker"
     except Exception as e:  # noqa: BLE001 - any failure -> heuristic
         verdict = _heuristic(submission, corr)
@@ -156,7 +202,7 @@ def _apply_defenses(verdict: dict, corr: dict, ev: dict) -> dict:
             "do not exist in the codebase (fabricated/hallucinated) and no external "
             "feed corroborates it. " + str(verdict.get("reasoning", ""))
         )
-        verdict["confidence"] = max(float(verdict.get("confidence", 0.5)), 0.9)
+        verdict["confidence"] = max(_as_float(verdict.get("confidence"), 0.5), 0.9)
 
     # 2) External feed corroboration -> never call a known issue spam.
     if corr.get("matched") and verdict.get("disposition") in ("slop", "theoretical_no_poc"):
@@ -170,7 +216,7 @@ def _apply_defenses(verdict: dict, corr: dict, ev: dict) -> dict:
     rel = ev.get("reliability")
     if rel is not None and verdict.get("disposition") in VALID:
         verdict["confidence"] = round(
-            min(float(verdict.get("confidence", 0.5)), 0.4 + 0.6 * float(rel)), 2
+            min(_as_float(verdict.get("confidence"), 0.5), 0.4 + 0.6 * _as_float(rel, 0.0)), 2
         )
     verdict["claim_reliability"] = rel
     return verdict
