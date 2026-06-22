@@ -151,16 +151,21 @@ def build_submission(row) -> dict:
 
 
 def render_user(submission: dict, corr_block: str) -> str:
-    """MUST match app/triage.py::_render verbatim."""
-    return (
-        f"Title: {submission.get('title','')}\n"
-        f"Claimed severity: {submission.get('severity_claimed','')}\n"
-        f"Asset: {submission.get('asset','')}\n\n"
-        f"Description:\n{submission.get('description','')}\n\n"
-        f"Steps to reproduce:\n{submission.get('steps_to_reproduce','')}\n\n"
-        f"Impact:\n{submission.get('impact','')}\n\n"
-        f"---\n{corr_block}\n"
-    )
+    """MUST match app/triage.py::_render verbatim (conditional sections)."""
+    out = [
+        f"Title: {submission.get('title','')}",
+        f"Claimed severity: {submission.get('severity_claimed','')}",
+        f"Asset: {submission.get('asset','')}",
+        "",
+    ]
+    for header, key in (("Description", "description"),
+                        ("Steps to reproduce", "steps_to_reproduce"),
+                        ("Impact", "impact")):
+        val = str(submission.get(key, "") or "").strip()
+        if val:
+            out += [f"{header}:", val, ""]
+    out += ["---", corr_block, ""]
+    return "\n".join(out)
 
 
 def build_reasoning(row, disposition: str, sev: str, corr: dict) -> str:

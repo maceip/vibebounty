@@ -151,7 +151,18 @@ function extractJson(text){
   if(cand===null) throw new Error("no JSON object in model output");
   return JSON.parse(cand);
 }
-function applyDefenses(verdict, corr, ev){
+const POC_RE = /```|step\s*\d|\bcurl\b|\bPOST\b|\bGET\b|\bpayload\b|https?:\/\/|\bexploit\b|proof of concept|\bPoC\b|alert\(|<script|\bburp\b|\brequest\b/i;
+function applyDefenses(verdict, corr, ev, sub){
+  // Content-aware no-PoC calibration: a report with real PoC/repro evidence
+  // (steps, request, payload, code, URL) is not "no PoC".
+  if(sub && verdict.disposition==="theoretical_no_poc"){
+    const text=[sub.title,sub.description,sub.steps_to_reproduce,sub.impact].map(x=>x||"").join(" ");
+    if(POC_RE.test(text)){
+      const sev=verdict.severity_estimate||"none";
+      verdict.disposition=(sev==="high"||sev==="critical")?"valid_impactful":"valid_low";
+      verdict.reasoning="Report contains concrete PoC/repro evidence (steps, request, payload, code, or URL), so it is not no-PoC. "+(verdict.reasoning||"");
+    }
+  }
   if(ev.hint==="fabricated" && !corr.matched){
     verdict.disposition="slop"; verdict.severity_estimate="none";
     verdict.reasoning="Claim verification refuted this report: it references code symbols that do not exist in the codebase (fabricated/hallucinated) and no external feed corroborates it. "+(verdict.reasoning||"");
@@ -192,7 +203,15 @@ function corrBlock(c){
   return L.join("\n");
 }
 function renderUser(sub, cblock){
-  return `Title: ${sub.title||""}\nClaimed severity: ${sub.severity_claimed||""}\nAsset: ${sub.asset||""}\n\nDescription:\n${sub.description||""}\n\nSteps to reproduce:\n${sub.steps_to_reproduce||""}\n\nImpact:\n${sub.impact||""}\n\n---\n${cblock}\n`;
+  // Conditional sections (matches app/triage.py::_render): omit empty
+  // Steps/Impact so they don't read as a false "no PoC" signal.
+  const out=[`Title: ${sub.title||""}`,`Claimed severity: ${sub.severity_claimed||""}`,`Asset: ${sub.asset||""}`,""];
+  for(const [h,k] of [["Description","description"],["Steps to reproduce","steps_to_reproduce"],["Impact","impact"]]){
+    const v=String(sub[k]||"").trim();
+    if(v) out.push(`${h}:`,v,"");
+  }
+  out.push("---",cblock,"");
+  return out.join("\n");
 }
 
 let modelMode = null;        // "webgpu" | "local"
@@ -228,7 +247,7 @@ async function run(sub){
     verdict.reasoning = (verdict.reasoning||"") + `  [model error: ${e.message} — heuristic fallback]`;
     engine = "heuristic (model error)";
   }
-  verdict = applyDefenses(verdict, corr, ev);
+  verdict = applyDefenses(verdict, corr, ev, sub);
   return {engine, verdict, corroboration:corr, evidence:ev};
 }
 

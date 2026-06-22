@@ -26,6 +26,7 @@ import argparse
 import json
 import pathlib
 import random
+import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -42,6 +43,7 @@ VALID_FRAC = 0.045
 CLASS_CAP = {"valid_low": 7000, "valid_impactful": 4000}
 CLASS_FLOOR = {"slop": 300, "likely_duplicate": 300, "out_of_scope": 300}
 CORR_MARKERS = ("=== EXTERNAL CORROBORATION", "EXTERNAL CORROBORATION:")
+CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.I)
 
 
 def _extract_json(text: str) -> dict:
@@ -83,16 +85,21 @@ def parse_old_user(content: str) -> dict:
 
 
 def render_user(sub: dict, corr_block: str) -> str:
-    """MUST match app/triage.py::_render verbatim."""
-    return (
-        f"Title: {sub.get('title','')}\n"
-        f"Claimed severity: {sub.get('severity_claimed','')}\n"
-        f"Asset: {sub.get('asset','')}\n\n"
-        f"Description:\n{sub.get('description','')}\n\n"
-        f"Steps to reproduce:\n{sub.get('steps_to_reproduce','')}\n\n"
-        f"Impact:\n{sub.get('impact','')}\n\n"
-        f"---\n{corr_block}\n"
-    )
+    """MUST match app/triage.py::_render verbatim (conditional sections)."""
+    out = [
+        f"Title: {sub.get('title','')}",
+        f"Claimed severity: {sub.get('severity_claimed','')}",
+        f"Asset: {sub.get('asset','')}",
+        "",
+    ]
+    for header, key in (("Description", "description"),
+                        ("Steps to reproduce", "steps_to_reproduce"),
+                        ("Impact", "impact")):
+        val = str(sub.get(key, "") or "").strip()
+        if val:
+            out += [f"{header}:", val, ""]
+    out += ["---", corr_block, ""]
+    return "\n".join(out)
 
 
 def is_bodyless(sub: dict) -> bool:
@@ -108,6 +115,18 @@ def convert_row(line: str):
     disp = str(gold.get("disposition", "")).strip().lower()
     if not disp:
         return None
+    # corroborated_surge is labeled from a CVE that lives in the report METADATA,
+    # not necessarily in the body the model reads. The old build folded it into a
+    # corroboration block we used to discard. Recover any CVE id and make sure it
+    # appears in the description so enrich() (the SAME engine used at inference)
+    # can surface it -> the corroboration signal is no longer invisible.
+    if disp == "corroborated_surge":
+        cves = sorted({c.upper() for c in CVE_RE.findall(msgs["user"])})
+        body = sub.get("description", "")
+        missing = [c for c in cves if c not in body.upper()]
+        if missing:
+            ref = "Referenced public advisories: " + ", ".join(missing) + "."
+            sub["description"] = (body + ("\n\n" if body else "") + ref).strip()
     corr = enrich(sub, use_osv=False)
     verdict = {
         "disposition": disp,

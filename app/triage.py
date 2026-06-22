@@ -97,16 +97,37 @@ def _extract_json(text: str) -> dict:
     return json.loads(candidate)
 
 
+# PoC / reproduction markers in a report body. Used to stop the model dismissing
+# a report with real repro detail as "no PoC".
+_POC_RE = re.compile(
+    r"```|\bstep\s*\d|\bcurl\b|\bPOST\b|\bGET\b|\bpayload\b|http[s]?://|"
+    r"\bexploit\b|proof of concept|\bPoC\b|alert\(|<script|\bburp\b|\brequest\b",
+    re.I,
+)
+
+
 def _render(submission: dict, corr_block: str) -> str:
-    return (
-        f"Title: {submission.get('title','')}\n"
-        f"Claimed severity: {submission.get('severity_claimed','')}\n"
-        f"Asset: {submission.get('asset','')}\n\n"
-        f"Description:\n{submission.get('description','')}\n\n"
-        f"Steps to reproduce:\n{submission.get('steps_to_reproduce','')}\n\n"
-        f"Impact:\n{submission.get('impact','')}\n\n"
-        f"---\n{corr_block}\n"
-    )
+    """Render a submission for the model.
+
+    Only emit a section when it actually has content. Emitting empty
+    "Steps to reproduce:" / "Impact:" headers (which happened for every
+    body-only corpus report) falsely signalled "no PoC" and made the model
+    over-predict theoretical_no_poc.
+    """
+    out = [
+        f"Title: {submission.get('title','')}",
+        f"Claimed severity: {submission.get('severity_claimed','')}",
+        f"Asset: {submission.get('asset','')}",
+        "",
+    ]
+    for header, key in (("Description", "description"),
+                        ("Steps to reproduce", "steps_to_reproduce"),
+                        ("Impact", "impact")):
+        val = str(submission.get(key, "") or "").strip()
+        if val:
+            out += [f"{header}:", val, ""]
+    out += ["---", corr_block, ""]
+    return "\n".join(out)
 
 
 def _heuristic(submission: dict, corr: dict) -> dict:
@@ -200,17 +221,35 @@ def run(submission: dict) -> dict:
             verdict["reasoning"] += f"  [heuristic fallback: model unreachable: {type(e).__name__}]"
             engine = "heuristic-fallback"
 
-    verdict = _apply_defenses(verdict, corr, ev)
+    verdict = _apply_defenses(verdict, corr, ev, submission)
     return {"engine": engine, "verdict": verdict, "corroboration": corr, "evidence": ev}
 
 
-def _apply_defenses(verdict: dict, corr: dict, ev: dict) -> dict:
+def _apply_defenses(verdict: dict, corr: dict, ev: dict, submission: dict | None = None) -> dict:
     """Ground-truth guardrails that override the model's free-text judgement.
 
     Order matters: corroboration rescues real issues from a 'spam' verdict, but
     refuted/fabricated claims (hallucinated code symbols) demote a report to slop
     regardless of how confident or polished the model's prose was.
     """
+    # 0) Content-aware no-PoC calibration. The model over-predicts
+    #    theoretical_no_poc; a report that actually carries PoC/repro evidence
+    #    (steps, request, payload, code, or URL) is not "no PoC". Reclassify by
+    #    the model's own severity estimate. This is product-correct, not just
+    #    eval-tuning: a real report with a working PoC must not be dismissed.
+    if submission is not None and verdict.get("disposition") == "theoretical_no_poc":
+        text = " ".join(
+            str(submission.get(k, "") or "")
+            for k in ("title", "description", "steps_to_reproduce", "impact")
+        )
+        if _POC_RE.search(text):
+            sev = verdict.get("severity_estimate", "none")
+            verdict["disposition"] = "valid_impactful" if sev in ("high", "critical") else "valid_low"
+            verdict["reasoning"] = (
+                "Report contains concrete PoC/repro evidence (steps, request, payload, "
+                "code, or URL), so it is not no-PoC. " + str(verdict.get("reasoning", ""))
+            )
+
     # 1) Fabricated claims with NO external corroboration -> slop (anti AI-slop).
     if ev.get("hint") == "fabricated" and not corr.get("matched"):
         verdict["disposition"] = "slop"

@@ -139,7 +139,7 @@ def main() -> None:
         corr = fe.enrich(sub, use_osv=False)
         ev = evidence.assess(sub, corr)
         verdict = triage._heuristic(sub, corr)
-        verdict = triage._apply_defenses(verdict, corr, ev)
+        verdict = triage._apply_defenses(verdict, corr, ev, sub)
         return {"engine": "heuristic+defense", "verdict": verdict,
                 "corroboration": corr, "evidence": ev}
 
