@@ -129,7 +129,9 @@ def convert_row(line: str):
 def read_jsonl(p: pathlib.Path):
     if not p.exists():
         return []
-    return [ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    # Split ONLY on "\n": report bodies can contain U+2028/U+2029 line separators
+    # which str.splitlines() would wrongly treat as record boundaries.
+    return [ln for ln in p.read_text(encoding="utf-8").split("\n") if ln.strip()]
 
 
 def main() -> None:
@@ -141,10 +143,20 @@ def main() -> None:
     out = pathlib.Path(args.out).expanduser()
     rng = random.Random(SEED)
 
+    bad = 0
+
+    def safe(ln):
+        nonlocal bad
+        try:
+            return convert_row(ln)
+        except Exception:  # noqa: BLE001 - skip the rare malformed record
+            bad += 1
+            return None
+
     # TEST: same reports as before, re-rendered (apples-to-apples).
     test = []
     for ln in read_jsonl(src / "test.jsonl"):
-        r = convert_row(ln)
+        r = safe(ln)
         if r:
             test.append(r[0])
 
@@ -152,7 +164,7 @@ def main() -> None:
     pool = []
     for fn in ("train.jsonl", "valid.jsonl"):
         for ln in read_jsonl(src / fn):
-            r = convert_row(ln)
+            r = safe(ln)
             if r:
                 pool.append(r)  # (ex, disp, bodyless)
 
@@ -187,6 +199,7 @@ def main() -> None:
     for ex in train:
         d = _extract_json(ex["messages"][2]["content"]).get("disposition", "?")
         tdist[d] = tdist.get(d, 0) + 1
+    print(f"skipped malformed rows: {bad}")
     print(f"dropped bodyless: {len(pool) - len(kept)} of {len(pool)} pool rows")
     print("TRAIN distribution after clean+cap+floor:")
     for k in sorted(tdist, key=lambda k: -tdist[k]):
