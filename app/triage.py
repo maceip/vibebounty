@@ -174,13 +174,31 @@ def run(submission: dict) -> dict:
                 {"role": "user", "content": _render(submission, corr_block)},
             ],
         )
-        verdict = _normalize_verdict(_extract_json(resp.choices[0].message.content))
+        # VibeThinker is a REASONING model: it emits a long <think> phase (routed
+        # to message.reasoning) and the JSON answer lands in message.content AFTER
+        # it. Read content first; only consult reasoning if content is empty. A too
+        # small max_tokens truncates it mid-think -> empty content (raise the budget).
+        msg = resp.choices[0].message
+        raw = msg.content or getattr(msg, "reasoning", None) or ""
+        verdict = _normalize_verdict(_extract_json(raw))
         engine = "vibethinker"
-    except Exception as e:  # noqa: BLE001 - any failure -> heuristic
-        verdict = _heuristic(submission, corr)
-        verdict.setdefault("reasoning", "")
-        verdict["reasoning"] += f"  [heuristic fallback: model unreachable: {type(e).__name__}]"
-        engine = "heuristic-fallback"
+    except Exception as e:  # noqa: BLE001
+        if os.environ.get("MODEL_NO_FALLBACK", "") not in ("", "0", "false"):
+            # Honest eval mode: a parse/model failure is a MODEL MISS, never a
+            # silent heuristic win that masquerades as the tune's accuracy.
+            verdict = {
+                "disposition": "parse_fail", "severity_estimate": "none",
+                "is_duplicate_risk": False,
+                "reasoning": f"model produced no parseable verdict: {type(e).__name__}: {e}",
+                "questions_for_researcher": [], "confidence": 0.0,
+                "used_external_corroboration": False,
+            }
+            engine = "model-fail"
+        else:
+            verdict = _heuristic(submission, corr)
+            verdict.setdefault("reasoning", "")
+            verdict["reasoning"] += f"  [heuristic fallback: model unreachable: {type(e).__name__}]"
+            engine = "heuristic-fallback"
 
     verdict = _apply_defenses(verdict, corr, ev)
     return {"engine": engine, "verdict": verdict, "corroboration": corr, "evidence": ev}

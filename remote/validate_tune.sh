@@ -53,12 +53,15 @@ echo; echo "== defense suite (offline, model-independent) =="
 "$PY" eval/adversarial.py
 
 # ---- 3. score the SERVED tuned model -------------------------------------
-# VibeThinker emits long chain-of-thought before the JSON verdict; give it room
-# or _extract_json fails and the verdict silently drops to the heuristic.
-MAXTOK="${MODEL_MAX_TOKENS:-3072}"
-echo; echo "== tuned model on $N held-out reports (greedy, max_tokens=$MAXTOK) =="
+# VibeThinker is a REASONING model: it emits a long <think> phase FIRST and the
+# JSON answer only AFTER it. A small budget truncates it mid-think -> empty
+# content -> parse fail. Give it real room (8000) and DISABLE the heuristic
+# fallback so a parse miss counts against the MODEL, not as a hidden baseline win.
+MAXTOK="${MODEL_MAX_TOKENS:-8000}"
+NOFB="${MODEL_NO_FALLBACK:-1}"
+echo; echo "== tuned model on $N held-out reports (greedy, max_tokens=$MAXTOK, no-fallback=$NOFB) =="
 rm -f eval/report.json eval/report.md   # never let a stale report masquerade as the model's
-if ! MODEL_MAX_TOKENS="$MAXTOK" MODEL_TEMPERATURE=0 MODEL_TOP_P=1.0 MODEL_TIMEOUT=300 \
+if ! MODEL_MAX_TOKENS="$MAXTOK" MODEL_NO_FALLBACK="$NOFB" MODEL_TEMPERATURE=0 MODEL_TOP_P=1.0 MODEL_TIMEOUT=600 \
      "$PY" eval/run_eval.py --data "$DATA" --n "$N" \
      --model-base-url "http://localhost:$PORT/v1"; then
   echo; echo "!! model eval FAILED (see traceback above). Aborting before the lift step"
