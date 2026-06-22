@@ -154,12 +154,14 @@ def main() -> None:
     accept_correct = 0
     surge_tp = surge_fn = 0             # did we catch corroborated reports?
     n = 0
+    total = len(rows)
     for row in rows:
         res = run_fn(row["submission"])
         engine = res["engine"]
         engine_counts[engine] += 1
         pred = res["verdict"].get("disposition", "?")
         g = row["gold"].get("disposition", "?")
+        print(f"[{n + 1}/{total}] engine={engine:<18} pred={pred:<20} gold={g}", flush=True)
         cm.setdefault(g, {}).setdefault(pred, 0)
         cm[g][pred] += 1
         # severity
