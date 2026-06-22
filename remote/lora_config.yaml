@@ -26,6 +26,15 @@ max_seq_length: 4096
 grad_checkpoint: true
 
 learning_rate: 1.0e-4
+# LR warmup + cosine decay. Without warmup, LR 1.0e-4 hits on step 1 and — with
+# the larger 4096 context (more tokens/step -> bigger early gradients) — the loss
+# diverged hard (spiked to ~13 by iter 30 before slowly recovering). Warm up over
+# 150 steps from ~1e-6 to the 1e-4 peak, then cosine-decay to 1e-6 across the run.
+lr_schedule:
+  name: cosine_decay
+  warmup: 150
+  warmup_init: 1.0e-6
+  arguments: [1.0e-4, 2000, 1.0e-6]
 # Only learn from the assistant turn, not the (long) system+report prompt.
 mask_prompt: true
 
