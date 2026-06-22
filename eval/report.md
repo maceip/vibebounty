@@ -7,32 +7,30 @@
 
 | metric | value |
 |---|---|
-| disposition accuracy (9-class) | **56.3%** |
-| accept / reject accuracy | **97.3%** |
-| macro-F1 | 0.191 |
-| weighted-F1 | 0.548 |
-| severity exact | 32.3% |
-| severity within 1 | 71.0% (MAE 1.00) |
+| disposition accuracy (9-class) | **65.0%** |
+| accept / reject accuracy | **97.0%** |
+| macro-F1 | 0.195 |
+| weighted-F1 | 0.580 |
+| severity exact | 37.7% |
+| severity within 1 | 76.3% (MAE 0.90) |
 | corroborated_surge recall | 0.0% |
 
 ## Per-class
 
 | disposition | precision | recall | F1 | support |
 |---|---|---|---|---|
-| valid_impactful | 0.18 | 0.30 | 0.23 | 54 |
-| valid_low | 0.73 | 0.73 | 0.73 | 209 |
+| valid_impactful | 0.26 | 0.15 | 0.19 | 54 |
+| valid_low | 0.70 | 0.89 | 0.78 | 209 |
 | corroborated_surge | 0.00 | 0.00 | 0.00 | 28 |
 | likely_duplicate | 0.00 | 0.00 | 0.00 | 6 |
 | out_of_scope | 0.00 | 0.00 | 0.00 | 3 |
-| self_inflicted | 0.00 | 0.00 | 0.00 | 0 |
 
 ## Confusion (gold rows -> predicted cols)
 
-| gold \ pred | valid_impactful | valid_low | corroborated_surge | likely_duplicate | out_of_scope | self_inflicted |
-|---|---|---|---|---|---|---|
-| **valid_impactful** | 16 | 38 | 0 | 0 | 0 | 0 |
-| **valid_low** | 55 | 153 | 1 | 0 | 0 | 0 |
-| **corroborated_surge** | 14 | 14 | 0 | 0 | 0 | 0 |
-| **likely_duplicate** | 2 | 3 | 0 | 0 | 0 | 1 |
-| **out_of_scope** | 0 | 3 | 0 | 0 | 0 | 0 |
-| **self_inflicted** | 0 | 0 | 0 | 0 | 0 | 0 |
+| gold \ pred | valid_impactful | valid_low | corroborated_surge | likely_duplicate | out_of_scope |
+|---|---|---|---|---|---|
+| **valid_impactful** | 8 | 46 | 0 | 0 | 0 |
+| **valid_low** | 21 | 187 | 1 | 0 | 0 |
+| **corroborated_surge** | 2 | 26 | 0 | 0 | 0 |
+| **likely_duplicate** | 0 | 6 | 0 | 0 | 0 |
+| **out_of_scope** | 0 | 3 | 0 | 0 | 0 |

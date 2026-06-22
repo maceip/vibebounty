@@ -11,7 +11,11 @@ CORRECTED training format:
   - assistant target = a SINGLE JSON verdict (no prose prefix) so the reasoning
     model answers directly instead of rambling past the token budget;
   - bodyless rows dropped from the train pool (no signal);
-  - majority capped + rare classes floored (light rebalance).
+  - NATURAL label distribution: no class cap, no minority oversampling. The build
+    ASSERTS train share ~= held-out test share per disposition (PARITY_TOL), so a
+    distribution skew can never silently ship again. Use --allow-skew to override.
+  - stratified valid split (per-class VALID_FRAC) so the in-loop val loss reflects
+    the real distribution rather than a rebalanced one.
 
 The TEST split is the SAME 300 reports as before (re-rendered), so the new tune
 is measured apples-to-apples against the prior run.
@@ -40,8 +44,15 @@ SYSTEM = SYSTEM_BASE + GUARD
 
 SEED = 13
 VALID_FRAC = 0.045
-CLASS_CAP = {"valid_low": 7000, "valid_impactful": 4000}
-CLASS_FLOOR = {"slop": 300, "likely_duplicate": 300, "out_of_scope": 300}
+# Distribution policy: train on the NATURAL label distribution (no class cap /
+# no minority oversampling). A previous build capped valid_low and 10x-duplicated
+# slop, which shifted the model's prior off the real/test distribution and made
+# it over-escalate to valid_impactful and over-fire slop / theoretical_no_poc
+# (classes with ZERO support in the held-out test set). Rare-class handling is the
+# job of the deterministic defense layer + heuristic, NOT of synthetic rebalancing.
+# The build now ASSERTS the train distribution matches the held-out test
+# distribution within PARITY_TOL, so a future rebalance can't silently regress.
+PARITY_TOL = 0.06  # max allowed |train_share - test_share| per disposition
 CORR_MARKERS = ("=== EXTERNAL CORROBORATION", "EXTERNAL CORROBORATION:")
 CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.I)
 
@@ -153,10 +164,26 @@ def read_jsonl(p: pathlib.Path):
     return [ln for ln in p.read_text(encoding="utf-8").split("\n") if ln.strip()]
 
 
+def _disp_of(ex: dict) -> str:
+    return _extract_json(ex["messages"][2]["content"]).get("disposition", "?")
+
+
+def _shares(examples: list):
+    """Return (shares, counts): disposition -> fraction, disposition -> count."""
+    counts: dict = {}
+    for ex in examples:
+        d = _disp_of(ex)
+        counts[d] = counts.get(d, 0) + 1
+    n = max(1, len(examples))
+    return {d: c / n for d, c in counts.items()}, counts
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", required=True, help="dir with old train/valid/test.jsonl")
     ap.add_argument("--out", default=str(ROOT / "data" / "sft"))
+    ap.add_argument("--allow-skew", action="store_true",
+                    help="warn instead of failing when train/test distributions diverge")
     args = ap.parse_args()
     src = pathlib.Path(args.src).expanduser()
     out = pathlib.Path(args.out).expanduser()
@@ -172,39 +199,38 @@ def main() -> None:
             bad += 1
             return None
 
-    # TEST: same reports as before, re-rendered (apples-to-apples).
+    # TEST: same reports as before, re-rendered (apples-to-apples). This is the
+    # held-out, natural label distribution we measure against and must match.
     test = []
     for ln in read_jsonl(src / "test.jsonl"):
         r = safe(ln)
         if r:
             test.append(r[0])
 
-    # TRAIN POOL: old train + valid, dropped/capped/floored.
+    # TRAIN POOL: old train + valid. Drop bodyless (no signal); NO cap, NO floor
+    # -> the train prior stays equal to the natural/test prior.
     pool = []
     for fn in ("train.jsonl", "valid.jsonl"):
         for ln in read_jsonl(src / fn):
             r = safe(ln)
             if r:
                 pool.append(r)  # (ex, disp, bodyless)
-
     kept = [(ex, disp) for (ex, disp, bl) in pool if not bl]
+
+    # Stratified valid split: sample VALID_FRAC PER CLASS so the in-loop val set
+    # mirrors the natural distribution (a val loss on a skewed val set is what
+    # masked the last regression).
     by: dict = {}
     for ex, disp in kept:
         by.setdefault(disp, []).append(ex)
-    balanced = []
+    valid, train = [], []
     for disp, items in by.items():
         rng.shuffle(items)
-        cap = CLASS_CAP.get(disp)
-        if cap:
-            items = items[:cap]
-        floor = CLASS_FLOOR.get(disp)
-        if floor and 0 < len(items) < floor:
-            items = items + [rng.choice(items) for _ in range(floor - len(items))]
-        balanced.extend(items)
-    rng.shuffle(balanced)
-
-    n_valid = max(64, int(len(balanced) * VALID_FRAC))
-    valid, train = balanced[:n_valid], balanced[n_valid:]
+        k = max(1, int(round(len(items) * VALID_FRAC))) if len(items) > 1 else 0
+        valid.extend(items[:k])
+        train.extend(items[k:])
+    rng.shuffle(train)
+    rng.shuffle(valid)
 
     out.mkdir(parents=True, exist_ok=True)
     for name, data in (("train", train), ("valid", valid), ("test", test)):
@@ -212,19 +238,47 @@ def main() -> None:
             for ex in data:
                 f.write(json.dumps(ex, ensure_ascii=False) + "\n")
 
-    tdist: dict = {}
-    for d in by:
-        tdist[d] = 0
-    for ex in train:
-        d = _extract_json(ex["messages"][2]["content"]).get("disposition", "?")
-        tdist[d] = tdist.get(d, 0) + 1
+    # ---- distribution-parity report + GUARD --------------------------------
+    train_sh, train_ct = _shares(train)
+    test_sh, test_ct = _shares(test)
+    classes = sorted(set(train_sh) | set(test_sh),
+                     key=lambda c: -test_sh.get(c, 0))
     print(f"skipped malformed rows: {bad}")
     print(f"dropped bodyless: {len(pool) - len(kept)} of {len(pool)} pool rows")
-    print("TRAIN distribution after clean+cap+floor:")
-    for k in sorted(tdist, key=lambda k: -tdist[k]):
-        print(f"  {k:<20} {tdist[k]:>6}  ({tdist[k]/max(1,len(train)):.0%})")
+    print(f"\n{'disposition':<22}{'train':>14}{'test':>10}{'|delta|':>9}")
+    print("-" * 55)
+    max_delta, worst = 0.0, None
+    missing = []
+    for c in classes:
+        tr, te = train_sh.get(c, 0.0), test_sh.get(c, 0.0)
+        delta = abs(tr - te)
+        if delta > max_delta:
+            max_delta, worst = delta, c
+        # a class with real test support but ~no train support can't be learned
+        if te > 0.01 and train_ct.get(c, 0) == 0:
+            missing.append(c)
+        print(f"{c:<22}{train_ct.get(c,0):>6} ({tr:>4.0%}){te:>6.0%}{delta:>9.1%}")
+    print("-" * 55)
+    print(f"max |train-test| share delta: {max_delta:.1%} on '{worst}'  (tol {PARITY_TOL:.0%})")
     print(f"\nwritten: train={len(train)}  valid={len(valid)}  test={len(test)}")
     print(f"out dir: {out}")
+
+    problems = []
+    if max_delta > PARITY_TOL:
+        problems.append(f"train/test distribution diverges by {max_delta:.1%} on "
+                        f"'{worst}' (> {PARITY_TOL:.0%}). The train prior must match "
+                        f"the held-out distribution or the model mis-calibrates.")
+    if missing:
+        problems.append(f"classes with test support but no train examples: {missing}")
+    if problems:
+        msg = "DISTRIBUTION GUARD FAILED:\n  - " + "\n  - ".join(problems)
+        if args.allow_skew:
+            print("\n[WARN] " + msg + "\n(continuing because --allow-skew)")
+        else:
+            print("\n[FATAL] " + msg)
+            sys.exit(3)
+    else:
+        print("\nDISTRIBUTION GUARD PASSED: train prior matches held-out test prior.")
 
 
 if __name__ == "__main__":

@@ -1,20 +1,28 @@
 # MLX-LM LoRA config for fine-tuning VibeThinker-3B into a bug-bounty triage model.
+# Canonical, version-controlled copy. remote/setup_mac.sh / launch_train.sh copy
+# this into ~/bbverifier/lora_config.yaml so the training config never drifts
+# from the repo.
 model: "WeiboAI/VibeThinker-3B"
 train: true
 
-# Data dir must contain train.jsonl and valid.jsonl (chat / messages format).
+# Data dir must contain train.jsonl and valid.jsonl (chat / messages format),
+# built by data/rebuild_sft_from_jsonl.py on the NATURAL label distribution
+# (the build asserts train share ~= held-out test share).
 data: "data/sft"
 
 fine_tune_type: lora
 optimizer: adamw
 seed: 13
 
-# Apply LoRA to all 36 transformer blocks for richer adaptation (M5 Max has headroom).
+# Apply LoRA to all 36 transformer blocks for richer adaptation (M5 has headroom).
 num_layers: 36
 
 batch_size: 8
 iters: 2000
-max_seq_length: 2048
+# 4096 (was 2048): a long report + system prompt could exceed 2048 and, with
+# mask_prompt, truncate the assistant JSON target out of the sequence entirely
+# -> rows that contribute no usable supervision. 4096 fits comfortably on 128GB.
+max_seq_length: 4096
 grad_checkpoint: true
 
 learning_rate: 1.0e-4
@@ -24,6 +32,9 @@ mask_prompt: true
 steps_per_report: 10
 steps_per_eval: 200
 val_batches: 25
+# Save every 200 iters so remote/select_checkpoint.sh can pick the checkpoint
+# that maximizes held-out accept/reject accuracy instead of blindly shipping the
+# final (often over-trained) iter.
 save_every: 200
 
 adapter_path: "adapters"
