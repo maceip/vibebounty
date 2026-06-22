@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0a0c12" />
+  <meta name="theme-color" content="#ffffff" />
   <title>VibeBounty — AI bug-bounty triage, in your browser</title>
   <meta name="description" content="A defense-hardened VibeThinker-3B that triages vulnerability reports, running fully on-device via WebGPU." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -12,7 +12,6 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="ambient" aria-hidden="true"><span class="orb orb-a"></span><span class="orb orb-b"></span><span class="orb orb-c"></span></div>
   <div class="scrim" id="scrim"></div>
 
   <div class="app">
@@ -91,7 +90,6 @@
   <!-- ============ BLOCKING MODEL GATE ============ -->
   <div id="gate" class="gate">
     <div class="gate-card">
-      <div class="gate-glow" aria-hidden="true"></div>
       <div class="gate-brand"><span class="brand-mark">⬡</span> VibeBounty</div>
       <h1 class="gate-title">Load the triage model to continue</h1>
       <p class="gate-sub">This console runs the tuned <b>VibeThinker-3B</b> bug-bounty triage model.

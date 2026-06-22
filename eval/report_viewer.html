@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VibeBounty — eval report viewer</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --surface:#fff; --border:#e6e8eb; --text:#1c1c1e; --muted:#595d63;
+    --accent:#ec1075; --good:#28b04a; --bad:#d6213f; --warn:#d99405;
+    --shadow:0 1px 3px rgba(28,28,30,.08),0 1px 2px rgba(28,28,30,.04);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1100px;margin:0 auto;padding:28px 20px 80px;}
+  h1{font-size:22px;font-weight:800;letter-spacing:-.4px;margin:0 0 2px;}
+  .sub{color:var(--muted);margin:0 0 22px;}
+  .loaders{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:24px;}
+  .drop{flex:1;min-width:260px;background:var(--surface);border:1.5px dashed var(--border);border-radius:12px;
+    padding:16px;cursor:pointer;transition:.15s;}
+  .drop.over{border-color:var(--accent);background:#fdeaf3;}
+  .drop b{display:block;font-size:13px;} .drop span{color:var(--muted);font-size:12px;}
+  .drop input{display:none}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);
+    padding:18px 20px;margin-bottom:18px;}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 14px;}
+  table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;}
+  th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--border);}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:600;}
+  td.num,th.num{text-align:right;}
+  .up{color:var(--good);font-weight:700} .dn{color:var(--bad);font-weight:700} .eq{color:var(--muted)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;}
+  .pill.ok{background:#e7f6ec;color:#1d7a37} .pill.warn{background:#fdf3dd;color:#9a6a00} .pill.bad{background:#fbe3e7;color:#a8182e}
+  .cm{border-collapse:collapse;font-size:12px;}
+  .cm th,.cm td{border:1px solid var(--border);padding:6px 8px;text-align:center;min-width:34px;}
+  .cm th.row{text-align:right;white-space:nowrap;background:#fafbfc;}
+  .cm th.col{writing-mode:vertical-rl;transform:rotate(180deg);height:96px;vertical-align:bottom;font-weight:600;color:var(--muted);}
+  .cm td.diag{outline:2px solid var(--good);outline-offset:-2px;font-weight:700;}
+  .cm td.off{color:#7a1326;}
+  .bars div{height:8px;border-radius:4px;background:var(--accent);}
+  .legend{color:var(--muted);font-size:12px;margin-top:8px;}
+  .hint{color:var(--muted);font-size:13px;}
+  code{background:#f1f3f5;padding:1px 5px;border-radius:5px;font:12px "JetBrains Mono",ui-monospace,monospace;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Eval report viewer</h1>
+  <p class="sub">Offline. Load <code>eval/report_model.json</code> (and optionally <code>eval/report_baseline.json</code>) — drag-drop or click. Nothing is uploaded.</p>
+
+  <div class="loaders">
+    <label class="drop" id="drop-model">
+      <b>① Model report.json</b><span id="name-model">drop or click to choose</span>
+      <input type="file" accept=".json,application/json" id="file-model" />
+    </label>
+    <label class="drop" id="drop-base">
+      <b>② Baseline report.json <span style="font-weight:400">(optional)</span></b><span id="name-base">drop or click to choose</span>
+      <input type="file" accept=".json,application/json" id="file-base" />
+    </label>
+  </div>
+
+  <div id="out"></div>
+  <p class="hint" id="empty">Waiting for a report… The validate_tune.sh run writes both files into <code>eval/</code>.</p>
+</div>
+
+<script>
+const DISPO_ORDER = ["valid_impactful","valid_low","corroborated_surge","likely_duplicate","out_of_scope","theoretical_no_poc","self_inflicted","accepted_risk","slop","parse_fail"];
+let model=null, baseline=null;
+const pct=(x)=> (x==null?"—":(x*100).toFixed(1)+"%");
+const f3=(x)=> (x==null?"—":Number(x).toFixed(3));
+
+function wireDrop(dropId, inputId, nameId, set){
+  const drop=document.getElementById(dropId), input=document.getElementById(inputId), name=document.getElementById(nameId);
+  const read=(file)=>{ const r=new FileReader(); r.onload=()=>{ try{ set(JSON.parse(r.result)); name.textContent=file.name; render(); }catch(e){ name.textContent="invalid JSON: "+e.message; } }; r.readAsText(file); };
+  input.addEventListener("change",e=>{ if(e.target.files[0]) read(e.target.files[0]); });
+  ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
+  ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
+  drop.addEventListener("drop",e=>{ const f=e.dataTransfer.files[0]; if(f) read(f); });
+}
+wireDrop("drop-model","file-model","name-model",(j)=>model=j);
+wireDrop("drop-base","file-base","name-base",(j)=>baseline=j);
+
+const METRICS=[
+  ["disposition accuracy (9-class)","disposition_accuracy",pct,true],
+  ["accept / reject accuracy","accept_reject_accuracy",pct,true],
+  ["macro-F1","macro_f1",f3,true],
+  ["weighted-F1","weighted_f1",f3,true],
+  ["severity exact","severity_exact",pct,true],
+  ["severity within 1","severity_within_1",pct,true],
+  ["severity MAE","severity_mae",f3,false],          // lower is better
+  ["corroborated_surge recall","corroborated_surge_recall",pct,true],
+];
+
+function deltaCell(m,b,higherBetter){
+  if(m==null||b==null) return '<td class="num eq">—</td>';
+  const d=m-b, eps=1e-9;
+  const better = higherBetter ? d>eps : d<-eps;
+  const worse  = higherBetter ? d<-eps : d>eps;
+  const cls = better?"up":worse?"dn":"eq";
+  const sign = d>0?"+":"";
+  const disp = (Math.abs(d)<1 && Math.abs(d)>0 && higherBetter)?(sign+(d*100).toFixed(1)+"pp"):(sign+d.toFixed(3));
+  return `<td class="num ${cls}">${disp}</td>`;
+}
+
+function metricsCard(){
+  let rows="";
+  for(const [label,key,fmt,hb] of METRICS){
+    const mv=model[key], bv=baseline?baseline[key]:null;
+    rows+=`<tr><td>${label}</td><td class="num">${fmt(mv)}</td>`+
+      (baseline?`<td class="num">${fmt(bv)}</td>${deltaCell(mv,bv,hb)}`:"")+`</tr>`;
+  }
+  const share=model.model_drove_share;
+  let badge, note;
+  if(share!=null && share<0.8){ badge=`<span class="pill bad">model drove ${pct(share)}</span>`; note="Model is emitting invalid JSON and hiding behind the heuristic — FORMAT problem."; }
+  else if(baseline && model.disposition_accuracy<=baseline.disposition_accuracy){ badge=`<span class="pill warn">no lift vs baseline</span>`; note="Tune does not beat the heuristic baseline on this slice. Inspect the confusion matrix for class collapse."; }
+  else { badge=`<span class="pill ok">healthy</span>`; note = baseline?"Tune beats baseline AND drives its own verdicts.":"Loaded."; }
+  const head=`<tr><th>metric</th><th class="num">model</th>${baseline?'<th class="num">baseline</th><th class="num">Δ</th>':''}</tr>`;
+  return `<div class="card"><h2>Headline ${badge}</h2>
+    <p class="hint">engine <code>${model.engine||"?"}</code> · n=<b>${model.n}</b> · model drove <b>${pct(share)}</b> · mix <code>${JSON.stringify(model.engine_counts||{})}</code></p>
+    <table>${head}${rows}</table><p class="legend">${note}</p></div>`;
+}
+
+function perClassCard(){
+  const pc=model.per_class||{};
+  const labels=DISPO_ORDER.filter(l=>l in pc).concat(Object.keys(pc).filter(l=>!DISPO_ORDER.includes(l)));
+  const maxF=Math.max(0.0001,...labels.map(l=>pc[l].f1||0));
+  let rows="";
+  for(const l of labels){ const m=pc[l]; const w=Math.round((m.f1||0)/maxF*100);
+    rows+=`<tr><td>${l}</td><td class="num">${(m.precision).toFixed(2)}</td><td class="num">${(m.recall).toFixed(2)}</td>
+      <td class="num">${(m.f1).toFixed(2)}</td><td class="num">${m.support}</td>
+      <td style="width:160px"><div class="bars"><div style="width:${w}%"></div></div></td></tr>`; }
+  return `<div class="card"><h2>Per-class precision / recall / F1</h2>
+    <table><tr><th>disposition</th><th class="num">P</th><th class="num">R</th><th class="num">F1</th><th class="num">support</th><th>F1</th></tr>${rows}</table></div>`;
+}
+
+function confusionCard(){
+  const cm=model.confusion||{};
+  const present=new Set();
+  for(const g in cm){ present.add(g); for(const p in cm[g]) present.add(p); }
+  const labels=DISPO_ORDER.filter(l=>present.has(l)).concat([...present].filter(l=>!DISPO_ORDER.includes(l)));
+  let max=1; for(const g of labels) for(const p of labels) if(g!==p) max=Math.max(max,(cm[g]||{})[p]||0);
+  const head=`<tr><th class="row">gold \\ pred</th>`+labels.map(p=>`<th class="col">${p}</th>`).join("")+`<th class="row">recall</th></tr>`;
+  let rows="";
+  for(const g of labels){
+    const total=labels.reduce((s,p)=>s+((cm[g]||{})[p]||0),0);
+    const tp=(cm[g]||{})[g]||0;
+    let cells="";
+    for(const p of labels){
+      const v=(cm[g]||{})[p]||0;
+      if(g===p) cells+=`<td class="diag" style="background:rgba(40,176,74,${v?0.12+0.5*(total?tp/total:0):0})">${v||""}</td>`;
+      else cells+=`<td class="off" style="background:rgba(214,33,63,${v?0.08+0.5*(v/max):0})">${v||""}</td>`;
+    }
+    rows+=`<tr><th class="row">${g}</th>${cells}<th class="row">${total?((tp/total*100).toFixed(0)+"%"):"—"}</th></tr>`;
+  }
+  return `<div class="card"><h2>Confusion matrix (gold rows → predicted cols)</h2>
+    <div style="overflow:auto"><table class="cm">${head}${rows}</table></div>
+    <p class="legend">Green diagonal = correct (intensity = per-class recall). Red off-diagonal = misclassifications (intensity = count). Rightmost column = recall per gold class.</p></div>`;
+}
+
+function render(){
+  if(!model){ return; }
+  document.getElementById("empty").style.display="none";
+  document.getElementById("out").innerHTML = metricsCard()+confusionCard()+perClassCard();
+}
+</script>
+</body>
+</html>

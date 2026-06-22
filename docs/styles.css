@@ -42,7 +42,6 @@ body {
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
 button, select, textarea, input { font-family: inherit; }
-.ambient { display: none; }                 /* no ambient lighting — keep it clean */
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-thumb { background: #d3d7dc; border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: #bcc1c8; background-clip: content-box; }
@@ -246,7 +245,6 @@ body.nav-open .scrim { opacity: 1; pointer-events: auto; }
 .gate-card { position: relative; width: min(540px, 100%); max-height: 92vh; overflow-y: auto;
   background: var(--surface); color: var(--text); border: 1px solid var(--border);
   border-radius: 16px; padding: 32px 30px 24px; box-shadow: var(--shadow-lg); }
-.gate-glow { display: none; }                /* keep it clean, no rainbow border */
 .gate-brand { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 15px; color: var(--text); letter-spacing: -.2px; }
 .gate-brand .brand-mark { width: 26px; height: 26px; border-radius: 7px; }
 .gate-title { font-size: 24px; font-weight: 800; letter-spacing: -.5px; margin: 18px 0 8px; color: var(--text); }

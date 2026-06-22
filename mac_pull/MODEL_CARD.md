@@ -63,6 +63,15 @@ mlx_lm.generate --model vibethinker-bbtriage \
 Or load the base + adapter directly with mlx-lm without fusing
 (`--adapter-path vibebounty/adapters`).
 
+## Usage (in-browser, WebGPU)
+
+VibeThinker-3B is Qwen2.5-3B architecture, so the fused tune converts cleanly to
+**MLC `q4f16_1`** and runs in the browser via [WebLLM](https://github.com/mlc-ai/web-llm),
+reusing the prebuilt Qwen2.5-3B WASM lib (no compile step). Convert + publish with
+[`remote/convert_mlc.sh`](https://github.com/maceip/vibebounty) → an MLC weights repo
+(`…-BugBounty-Triage-MLC`). The static console in `docs/` then loads it client-side
+on the visitor's GPU — nothing is uploaded.
+
 ## Training
 
 - **Base:** WeiboAI/VibeThinker-3B (Qwen2.5-3B lineage)
@@ -92,18 +101,30 @@ Or load the base + adapter directly with mlx-lm without fusing
 
 | metric | heuristic + defense baseline |
 |---|---|
-| accept / reject accuracy | **97.3%** |
-| disposition accuracy (9-class) | 56.3% |
-| macro-F1 | 0.191 |
-| severity within-1 | 71.0% |
-| adversarial defense suite | **6 / 6 pass** |
+| accept / reject accuracy | **97.0%** |
+| disposition accuracy (9-class) | 65.0% |
+| macro-F1 / weighted-F1 | 0.194 / 0.580 |
+| severity within-1 | 76.3% (MAE 0.90) |
+| adversarial defense suite | **12 / 12 pass** |
+
+This is the deterministic **baseline** (rules + defenses, no model) — the bar the
+tune must beat. The tuned-model numbers on the same 300 are produced by
+`remote/validate_tune.sh 300`, which also reports the share of verdicts the model
+actually drove (a model emitting invalid JSON can't hide behind the heuristic).
 
 ## Defense layer (model-independent)
 
 Verdicts are guarded by ground-truth checks the model can't talk past:
-prompt-injection isolation, **claim-level verification** (fabricated code symbols → `slop`),
-and **threat-intel corroboration** (CVE/KEV/OSV → `corroborated_surge`, never spam).
-Offline adversarial suite: **6/6**.
+
+1. **Prompt-injection isolation** — the report is untrusted data, never instructions.
+2. **Claim-level verification** — fabricated code symbols → `slop`; real symbols → supported.
+3. **Threat-intel corroboration** — CVE/KEV/OSV match → `corroborated_surge`, never spam.
+4. **Confidence gating** — confidence is bounded by a claim-reliability score.
+5. **No-PoC calibration** — a report with real repro evidence (steps/request/payload/code/URL) is never `theoretical_no_poc`; it's reclassified by severity.
+
+Offline adversarial suite: **12/12** (6 end-to-end + 6 unit overrides). The same
+defenses ship in the browser engine (`docs/engine.mjs`) and are parity-tested with
+`node docs/engine.test.mjs`.
 
 ## Training data & provenance
 
@@ -113,10 +134,14 @@ public bug-bounty and **Web3** disclosure corpora. Every example's label is
 derived from the **real adjudicated outcome** recorded in the data (HackerOne
 `substate`, severity, bounty amount, vote count, and any associated CVE) and
 mapped onto the 9-class disposition taxonomy — the labels are **not synthetic**.
-Each report is rendered as chat (system + user report → assistant reasoning +
-verdict JSON); when a CVE is present, a live threat-intel corroboration block is
-rendered exactly as the inference pipeline emits it. ~300 reports are held out as
-a test split for evaluation.
+Each report is rendered as chat **exactly as the inference pipeline renders it**
+(system + user report → assistant verdict JSON). Two data-hygiene rules keep the
+training signal honest: (1) empty `Steps to reproduce` / `Impact` sections are
+**omitted** rather than emitted as blank headers, so a body-only report is never
+read as a false "no-PoC" signal; (2) for `corroborated_surge` examples the CVE id
+is surfaced into the report text so the corroboration signal is visible to the
+model (not metadata-only). When a CVE is present, a live threat-intel corroboration
+block is rendered exactly as inference emits it. ~300 reports are held out for eval.
 
 ## Academic grounding
 
