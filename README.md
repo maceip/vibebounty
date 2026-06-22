@@ -35,23 +35,20 @@ Iter  400: Val loss 1.056
 Iter 2000: train loss ~0.67   (3.43 -> 0.67)   peak mem ~32 GB
 ```
 
-**Evaluation** — held-out 300 reports, real disclosure outcomes. The table below
-is the deterministic **heuristic + defense baseline**, which is the bar the tuned
-model is measured against (`eval/run_eval.py` scores either path):
+**Evaluation** — held-out 300 reports, real disclosure outcomes.
 
-| metric | baseline |
+| metric | tuned model |
 |---|---|
-| accept / reject accuracy | **97.0%** |
-| disposition accuracy (9-class) | 65.0% |
-| macro-F1 / weighted-F1 | 0.194 / 0.580 |
-| severity within-1 (ordinal) | 76.3% (MAE 0.90) |
+| accept / reject accuracy | _pending_ |
+| disposition accuracy (9-class) | _pending_ |
+| macro-F1 / weighted-F1 | _pending_ |
+| severity within-1 (ordinal) | _pending_ |
 | adversarial defense suite | **12 / 12 pass** |
 
-Read this as the floor: rules already nail the binary decision (97%) but are weak
-on fine-grained 9-class disposition and rare classes (e.g. `corroborated_surge`
-needs a live feed match) — exactly what the tune is for. Re-run with
-`--model-base-url` to measure the lift over this baseline; the tuned-model numbers
-on the same 300 are produced by `remote/validate_tune.sh 300`.
+Tuned-model numbers on the held-out 300 are produced by
+`remote/validate_tune.sh 300` and will be filled in here once that eval lands.
+(The adversarial suite is model-independent — it proves the deterministic defense
+guardrails — so it reports now.)
 
 **A real verdict from the tuned model** (greedy, served via `mlx_lm`):
 
