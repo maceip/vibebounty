@@ -26,29 +26,36 @@ wraps it in a model-independent **defense layer**:
 
 ## Results
 
-**Training** — LoRA (rank 16, all 36 layers) on **17k reports labeled from real
-disclosure outcomes**, 2000 iters on a 128 GB M-series Mac via MLX:
+The model has been through **two tuning iterations**, each scored on held-out
+reports with the real adjudicated outcome as ground truth.
 
-```
-Iter   10: Train loss 3.43
-Iter  400: Val loss 1.056
-Iter 2000: train loss ~0.67   (3.43 -> 0.67)   peak mem ~32 GB
-```
+**Iteration 1 — cold-start (short-rationale SFT)** *(superseded)*
+MLX LoRA on a Mac over 17k reports, target = short (~200 char) rationale + JSON.
+It **collapsed onto the majority class** (`valid_low`): disposition accuracy 0.62,
+macro-F1 0.157, and **0% recall** on the classes that matter (`valid_impactful`,
+`corroborated_surge`) — below the deterministic heuristic baseline.
 
-**Evaluation** — held-out 300 reports, real disclosure outcomes.
+**Iteration 2 — trace-aligned SFT** *(shipping — the model on HF + in the demo)*
+Re-tuned on **teacher-generated `<think>` reasoning traces** (~1.4k chars of
+report-specific reasoning before the verdict), sanitized to remove outcome leakage,
+on an NVIDIA GH200.
 
-| metric | tuned model |
-|---|---|
-| accept / reject accuracy | _pending_ |
-| disposition accuracy (9-class) | _pending_ |
-| macro-F1 / weighted-F1 | _pending_ |
-| severity within-1 (ordinal) | _pending_ |
-| adversarial defense suite | **12 / 12 pass** |
+| metric (held-out, 9-class) | heuristic baseline | iter-1 cold-start | iter-2 trace-aligned |
+|---|---|---|---|
+| disposition accuracy | 0.60 | 0.62 *(on 300)* | 0.53 *(calibrated)* |
+| accept / reject accuracy | 0.98 | — | 0.88 *(calibrated)* |
+| macro-F1 | 0.247 | 0.157 | **0.428** |
+| `corroborated_surge` recall | 0.00 | 0.00 | **1.00** |
+| model drove the verdict | n/a | — | **100%** |
+| adversarial defense suite | 12/12 | 12/12 | **12/12** |
 
-Tuned-model numbers on the held-out 300 are produced by
-`remote/validate_tune.sh 300` and will be filled in here once that eval lands.
-(The adversarial suite is model-independent — it proves the deterministic defense
-guardrails — so it reports now.)
+**Honest read:** iteration 2 is a large jump over iteration 1 on the hard minority
+classes (macro-F1 0.157 → 0.428; surge recall 0 → 100%) and finally *drives* the
+verdicts rather than deferring to the heuristic. It does **not yet beat the pure
+deterministic heuristic** on headline 9-class accuracy, so the defense layer stays
+in front of the model. (Iter-2 numbers are on a 60-report slice; iter-1's are on
+300 — not perfectly comparable; re-run `remote/validate_tune.sh 300` for a matched
+eval. The adversarial suite is model-independent, so it reports regardless.)
 
 **A real verdict from the tuned model** (greedy, served via `mlx_lm`):
 
@@ -59,6 +66,79 @@ guardrails — so it reports now.)
  returns other tenants' invoices -> crosses a privilege boundary with demonstrated
  cross-tenant disclosure impact.",
  "confidence": 0.92, "used_external_corroboration": false}
+```
+
+## How we tune
+
+The tune is a **two-stage, gated pipeline**, not a one-shot fine-tune. The guiding
+rule: only ship a tune that beats the previous one on held-out, real-outcome data.
+
+### 1. Data — reasoning traces, not outcome labels
+
+The cold-start failure taught us the input signal was wrong: short rationales that
+leaked the outcome (`"It resolved as ..."`) — information a live analyst never has.
+So the shipping stage trains on **faithful `<think>` reasoning traces**:
+
+```bash
+# pick a class-balanced seed from the labeled corpus (counters the valid_low collapse)
+python data/select_trace_seed.py --in data/sft/train.jsonl \
+  --out data/sft/train_trace_seed.jsonl --manifest ops/train_trace_seed_manifest.json
+# generate teacher traces (a strong model thinks; a second model checks faithfulness)
+python data/trace_gen.py --in data/sft/train_trace_seed.jsonl \
+  --out data/sft/train_traces.jsonl --verify --drop-unfaithful \
+  --model claude-opus-4-8 --predict-model claude-sonnet-4-6
+```
+
+Traces are then **sanitized** — assistant-side outcome leakage stripped, malformed
+final JSON dropped — before they're allowed near the trainer.
+
+### 2. Gate — refuse to train on bad data
+
+`remote/run_trace_tune_today.sh` will not start training unless every gate passes:
+
+| gate | check |
+|------|-------|
+| `remote/trace_tune_gate.py` | ≥1000 traces, `<think>` p50 ≥ 900 chars, ≥40 rows per tested class |
+| `remote/verify_sft_data.py` | ≥500 rows tokenize cleanly against the base tokenizer |
+| smoke train | an 8-step run must succeed before the full run starts |
+
+### 3. Train — prompt-masked LoRA SFT on GPU
+
+`remote/train_sft.py` (PyTorch + PEFT) on the Lambda GH200, with loss masked to the
+assistant turn only:
+
+- base: `WeiboAI/VibeThinker-3B` (Qwen2.5-3B architecture)
+- LoRA `r=32` / `α=64` / dropout `0.05` on all attention + MLP projections
+- bf16, gradient checkpointing, cosine LR (`1e-4`) + 3% warmup, `max_seq 8192`, 4 epochs
+- merge the adapter into a full model with `remote/merge_lora.py`
+
+```bash
+bash remote/run_trace_tune_today.sh   # gate -> smoke -> full SFT -> merge -> manifest
+```
+
+Every accepted run writes `ops/<run_id>_artifact_manifest.json` (trace sha256 + git
+HEAD) for provenance.
+
+### 4. Evaluate — must beat the prior tune
+
+Serve the merged model with vLLM and score it in parallel against the held-out split:
+
+```bash
+MODEL_PATH=$HOME/models/vibethinker-bbtriage-<run> SERVE_BACKEND=vllm \
+  EVAL_WORKERS=8 bash remote/eval_model.sh 300
+```
+
+Acceptance: `model_drove_share ≥ 0.8`, minority-class recall up vs the prior tune,
+and clean JSON/verdict validity. If it doesn't beat the baseline it ships demo-only,
+labeled honestly.
+
+### 5. Package for the browser
+
+The accepted merged model is converted to MLC `q4f16_1` and published to HF for
+in-browser WebGPU:
+
+```bash
+bash remote/convert_mlc.sh            # fused tune -> MLC q4f16_1 -> Hugging Face
 ```
 
 ## Quickstart — the live console

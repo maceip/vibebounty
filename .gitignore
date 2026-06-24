@@ -32,6 +32,9 @@ mac_pull/
 models/
 dist/
 
+# stale one-off snapshot of remote scripts (canonical copies live in remote/ + data/)
+_remote_snapshot/
+
 # secrets / keys
 .hftoken
 *.pem
