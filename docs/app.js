@@ -3,7 +3,7 @@
 // The deterministic defense layer (claim verification + threat-intel
 // corroboration) is ported from the Python app and ALWAYS applied on top of
 // the model's verdict, so an adversary can't flip it with prose.
-import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.79";
+import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.84";
 import { enrich, assess, heuristic, normalizeVerdict, extractJson, applyDefenses,
          SYSTEM, GUARD, corrBlock, renderUser } from "./engine.mjs";
 
@@ -25,6 +25,7 @@ const SEEDS = [
   {title:"Auth bypass: admin panel accessible by changing role cookie", severity_claimed:"Critical", asset:"app.example.com", description:"Setting the cookie role=admin grants access to /admin without any server-side check. Attached: requests showing role=user denied (403) and role=admin allowed (200) with the same account.", steps_to_reproduce:"1. Log in as a normal user. 2. Edit cookie role=user to role=admin. 3. GET /admin now returns the admin dashboard and exposes user management.", impact:"Trivial privilege escalation to admin for any authenticated user."},
 ];
 const REPORTERS = ["h4x0r_jane","nullbyte","recon_raj","0xsam","bountyhunterX","ctrl_alt_pwn","sleepless_soc","anon_researcher"];
+const DEMO_LEAD = SEEDS[0]; // IDOR invoice PDF — canonical "real bug" demo beat
 
 const SURGE_LIB = {title:"Prototype pollution in lodash@4.17.15 shipped in your web bundle", severity_claimed:"High", asset:"app.example.com", description:"Your production bundle includes lodash@4.17.15, affected by a known prototype pollution vulnerability. Attackers can inject properties via crafted input processed by merge/set.", steps_to_reproduce:"Inspect main.js in the bundle; lodash version is 4.17.15. Payload {\"__proto__\":{\"polluted\":true}} pollutes Object.prototype.", impact:"Prototype pollution -> potential XSS / logic bypass depending on sink."};
 const SURGE_VARIANTS = ["lodash 4.17.15 prototype pollution in your app","CVE in lodash dependency (4.17.15) - prototype pollution","Vulnerable lodash@4.17.15 bundled on app.example.com","lodash prototype pollution - please patch 4.17.15","Outdated lodash 4.17.15 = prototype pollution risk","Security: lodash@4.17.15 known vuln in production bundle","Prototype pollution via lodash 4.17.15","Your site ships vulnerable lodash 4.17.15"];
@@ -33,8 +34,9 @@ const SURGE_VARIANTS = ["lodash 4.17.15 prototype pollution in your app","CVE in
 // The deterministic engine (enrich/assess/heuristic/defenses/prompt) lives in
 // engine.mjs — single source shared with the node tests (engine.test.mjs).
 
-let modelMode = null;        // "webgpu" | "local"
+let modelMode = null;        // "demo" | "webgpu" | "emberglass" | "local"
 let llmEngine = null;        // WebLLM engine
+let emberglassEngine = null; // Emberglass bridge engine
 let localBase = "", localModel = "";
 let engineLabel = "—";
 
@@ -48,6 +50,9 @@ async function chatComplete(messages){
   if(modelMode==="webgpu"){
     const r = await llmEngine.chat.completions.create({messages, temperature:0, max_tokens:MAX_TOKENS});
     return pickText(r.choices[0].message);
+  }
+  if(modelMode==="emberglass"){
+    return emberglassEngine.chatComplete(messages, { maxTokens: MAX_TOKENS, temperature: 0 });
   }
   const r = await fetch(localBase.replace(/\/$/,"")+"/chat/completions", {
     method:"POST", headers:{"Content-Type":"application/json"},
@@ -63,14 +68,20 @@ async function run(sub){
   const corr = enrich(sub);
   const ev = assess(sub, corr);
   let verdict, engine;
-  try {
+  if(modelMode==="demo"){
+    verdict = heuristic(sub, corr);
+    verdict.reasoning = (verdict.reasoning||"") + "  [instant demo: deterministic browser-side sidecar]";
+    engine = engineLabel;
+  } else {
+    try {
     const out = await chatComplete([{role:"system",content:SYSTEM+GUARD},{role:"user",content:renderUser(sub, corrBlock(corr))}]);
     verdict = normalizeVerdict(extractJson(out));
     engine = engineLabel;
-  } catch(e){
-    verdict = heuristic(sub, corr);
-    verdict.reasoning = (verdict.reasoning||"") + `  [model error: ${e.message} — heuristic fallback]`;
-    engine = "heuristic (model error)";
+    } catch(e){
+      verdict = heuristic(sub, corr);
+      verdict.reasoning = (verdict.reasoning||"") + `  [model error: ${e.message} — heuristic fallback]`;
+      engine = "heuristic (model error)";
+    }
   }
   verdict = applyDefenses(verdict, corr, ev, sub);
   return {engine, verdict, corroboration:corr, evidence:ev};
@@ -115,8 +126,11 @@ function evidenceHtml(ev){
   if(!ev||!ev.claims) return "";
   const rel=typeof ev.reliability==="number"?ev.reliability:0, pct=Math.round(rel*100);
   const col=rel>=0.66?"var(--low)":rel>=0.34?"var(--med)":"var(--crit)";
+  const relLabel = (pct===0 && (ev.n_unverifiable||0)>0 && !ev.n_supported && !ev.n_refuted)
+    ? "demo assets (no codebase match)"
+    : `${pct}%`;
   const claims=ev.claims.map(c=>`<div class="claim"><span class="cst ${c.status}">${c.status}</span><div class="claim-body"><div class="ctext">${esc(c.claim)}</div>${c.evidence?`<div class="cev">${esc(c.evidence)}</div>`:""}</div></div>`).join("");
-  return `<div class="evidence"><h4>Claim verification (ground truth, model-independent)</h4><div class="rel-row"><span class="rel-num" style="color:${col}">${pct}%</span><div class="rel-meter"><div style="width:${pct}%;background:${col}"></div></div><span class="none">${ev.n_supported} supported · ${ev.n_refuted} refuted</span></div>${claims}</div>`;
+  return `<div class="evidence"><h4>Claim verification (ground truth, model-independent)</h4><div class="rel-row"><span class="rel-num" style="color:${col}">${relLabel}</span><div class="rel-meter"><div style="width:${pct}%;background:${col}"></div></div><span class="none">${ev.n_supported} supported · ${ev.n_refuted} refuted</span></div>${claims}</div>`;
 }
 function corrHtml(c){
   if(!c) return `<div class="none">enrichment pending…</div>`;
@@ -216,38 +230,137 @@ setInterval(renderInbox, 15000);
 
 /* ============================ the blocking model gate ============================ */
 const gate=$("#gate"), gateOptions=$("#gate-options"), gateProgress=$("#gate-progress"), gateLocal=$("#gate-local"), gateStatus=$("#gate-status");
-function openGate(){ gate.classList.remove("gone"); }
+function openGate(){
+  gate.classList.remove("gone");
+  gateOptions.classList.remove("hidden");
+  gateProgress.classList.add("hidden");
+  gateLocal.classList.add("hidden");
+  setStatus(modelMode ? `Current engine: <b>${esc(engineLabel)}</b>` : "", "info");
+}
 function setStatus(msg, kind){ gateStatus.className="gate-status "+(kind||"info"); gateStatus.innerHTML=msg; }
 function setPill(state, text){ const p=$("#model-pill"); p.className="model-pill "+(state||""); $("#model-pill-text").textContent=text; }
-$("#model-pill").addEventListener("click",()=>{ if(!modelMode) openGate(); });
+$("#model-pill").addEventListener("click",openGate);
 
-// In-browser WebGPU model (MLC). The tuned weights are converted to MLC q4f16
-// and hosted as static files on HF; inference runs on the visitor's GPU.
+$("#opt-demo").addEventListener("click",startDemo);
+function startDemo(){
+  llmEngine=null; emberglassEngine=null; localBase=""; localModel="";
+  modelMode="demo"; engineLabel="sidecar demo (browser)";
+  setPill("ready","sidecar: demo");
+  $("#engine-chip").textContent="engine: "+engineLabel;
+  setStatus("Demo ready — triaging the queue in this page.","ok");
+  setTimeout(()=>{ gate.classList.add("gone"); }, 450);
+  if(!reports.size) seedInbox();
+  pump();
+}
+
+// In-browser WebGPU model (MLC). Localhost uses locally served MLC files;
+// GitHub Pages uses the public Hugging Face repo.
 const WEBGPU_MODEL_ID = "VibeThinker-3B-BugBounty-Triage-q4f16_1-MLC";
-const WEBGPU_APP_CONFIG = {
-  useIndexedDBCache: true,
-  model_list: [{
-    model: "https://huggingface.co/macmacmacmac/VibeThinker-3B-BugBounty-Triage-MLC/resolve/main",
-    model_id: WEBGPU_MODEL_ID,
-    model_lib: "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_79/Qwen2.5-3B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
-  }],
-};
+const HF_WEBGPU_MODEL_BASE = "https://huggingface.co/macmacmacmac/VibeThinker-3B-BugBounty-Triage-MLC/resolve/main";
+const LOCAL_WEBGPU_MODEL_BASE = "http://127.0.0.1:8799";
+const WEBGPU_CONTEXT_WINDOW = 8192;
+const WEBGPU_MODEL_LIB = "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_84/base/Qwen2.5-3B-Instruct-q4f16_1_cs1k-webgpu.wasm";
+function isLocalPage(){
+  const h=location.hostname;
+  return location.protocol==="file:" || h==="localhost" || h==="127.0.0.1" || h==="::1" || h.endsWith(".localhost");
+}
+function webgpuModelBase(){
+  const q=new URLSearchParams(location.search).get("mlc");
+  let saved="";
+  try { saved=localStorage.getItem("vibebounty.mlcBase")||""; } catch(_e) { saved=""; }
+  return (q || saved || (isLocalPage()?LOCAL_WEBGPU_MODEL_BASE:HF_WEBGPU_MODEL_BASE)).replace(/\/$/,"");
+}
+function webgpuAppConfig(modelBase){
+  return {
+    useIndexedDBCache:true,
+    model_list:[{
+      model:modelBase,
+      model_id:WEBGPU_MODEL_ID,
+      model_lib:WEBGPU_MODEL_LIB,
+      overrides:{
+        context_window_size:WEBGPU_CONTEXT_WINDOW,
+      },
+    }],
+  };
+}
 function setRing(p){ const off=327-327*p; $("#gp-fg").style.strokeDashoffset=off; $("#gp-pct").textContent=Math.round(p*100)+"%"; }
+
+const LOCAL_EMBERGLASS_BRIDGE = "http://127.0.0.1:8013/docs/emberglass-bridge.js";
+const HF_EMBERGLASS_BRIDGE = "https://maceip.github.io/qwen-webgpu-lora/emberglass-bridge.js";
+function emberglassBridgeUrl(){
+  const q=new URLSearchParams(location.search).get("emberglass.bridge");
+  let saved="";
+  try { saved=localStorage.getItem("vibebounty.emberglassBridge")||""; } catch(_e) { saved=""; }
+  return (q || saved || (isLocalPage()?LOCAL_EMBERGLASS_BRIDGE:HF_EMBERGLASS_BRIDGE)).replace(/\/$/,"");
+}
+function emberglassQuery(name, fallback=""){ return new URLSearchParams(location.search).get(name) || fallback; }
+function emberglassLoadConfig(){
+  const modelUrl=emberglassQuery("emberglass.model","");
+  const loraUrl=emberglassQuery("emberglass.lora", isLocalPage() ? "http://127.0.0.1:8013/adapters/highconf-trace-20260623" : "");
+  return {
+    bridgeUrl: emberglassBridgeUrl(),
+    modelUrl,
+    hfRepo: emberglassQuery("emberglass.repo", "WeiboAI/VibeThinker-3B"),
+    hfToken: emberglassQuery("emberglass.token", ""),
+    loraUrl: loraUrl || undefined,
+    loraRepo: emberglassQuery("emberglass.loraRepo", "") || undefined,
+  };
+}
+
+$("#opt-emberglass").addEventListener("click", loadEmberglass);
+async function loadEmberglass(){
+  if(!navigator.gpu){ setStatus("This browser has no <b>WebGPU</b>. Use Chrome/Edge 121+ with the <code>subgroups</code> feature, or pick another engine.", "err"); return; }
+  if(!navigator.gpu.requestAdapter){ setStatus("WebGPU is present but unavailable in this context.", "err"); return; }
+  const cfg=emberglassLoadConfig();
+  gateOptions.classList.add("hidden"); gateProgress.classList.remove("hidden");
+  setPill("loading","model: emberglass…");
+  setStatus(`Loading Emberglass bridge from <code>${esc(cfg.bridgeUrl)}</code>.`,"info"); setRing(0.02);
+  try {
+    const mod = await import(cfg.bridgeUrl);
+    if(typeof mod.createEmberglassEngine!=="function") throw new Error("bridge missing createEmberglassEngine export");
+    emberglassEngine = await mod.createEmberglassEngine({
+      modelUrl: cfg.modelUrl || undefined,
+      hfRepo: cfg.modelUrl ? undefined : cfg.hfRepo,
+      hfToken: cfg.hfToken || undefined,
+      loraUrl: cfg.loraUrl,
+      loraRepo: cfg.loraRepo,
+      log: (m)=>{ $("#gp-text").textContent=m; },
+      onProgress: (msg, frac)=>{ if(typeof frac==="number") setRing(Math.min(0.98, frac)); $("#gp-text").textContent=msg; },
+    });
+    llmEngine=null; localBase=""; localModel="";
+    modelMode="emberglass"; engineLabel=emberglassEngine.label || "emberglass (custom webgpu)";
+    onModelReady("Emberglass · custom WebGPU");
+  } catch(e){
+    gateProgress.classList.add("hidden"); gateOptions.classList.remove("hidden"); setPill("error","model: failed");
+    const hint=isLocalPage()
+      ? `Serve <code>qwen-webgpu-lora</code> on port 8013 (<code>npm run serve</code>) with <code>/model</code> and the bridge at <code>${esc(LOCAL_EMBERGLASS_BRIDGE)}</code>, or pass <code>?emberglass.bridge=…</code>.`
+      : "Publish <code>docs/emberglass-bridge.js</code> from qwen-webgpu-lora to GitHub Pages, or pass <code>?emberglass.bridge=https://…/emberglass-bridge.js</code>.";
+    setStatus(`Emberglass load failed: <b>${esc(e.message||String(e))}</b><br>${hint} <button id="emberglass-demo-fallback" class="inline-action">Start instant demo</button>`, "err");
+    $("#emberglass-demo-fallback")?.addEventListener("click",startDemo);
+  }
+}
 
 $("#opt-webgpu").addEventListener("click", loadWebGPU);
 async function loadWebGPU(){
   if(!navigator.gpu){ setStatus("This browser has no <b>WebGPU</b>. Use Chrome/Edge 121+ (or enable WebGPU), or pick <b>Connect a local model</b>.", "err"); return; }
   gateOptions.classList.add("hidden"); gateProgress.classList.remove("hidden");
-  setPill("loading","model: downloading…"); setStatus("Downloading once, then cached on this device.","info"); setRing(0);
+  const modelBase=webgpuModelBase();
+  const local=isLocalPage();
+  setPill("loading",local?"model: localhost…":"model: downloading…");
+  setStatus(`Loading WebGPU model from <code>${esc(modelBase)}</code>.`,"info"); setRing(0);
   try {
     llmEngine = await webllm.CreateMLCEngine(WEBGPU_MODEL_ID, {
-      appConfig: WEBGPU_APP_CONFIG,
+      appConfig: webgpuAppConfig(modelBase),
       initProgressCallback: (p)=>{ if(typeof p.progress==="number") setRing(p.progress); $("#gp-text").textContent=p.text||"loading…"; },
     });
-    modelMode="webgpu"; engineLabel="vibethinker-3b (webgpu)"; onModelReady("VibeThinker-3B · in-browser (WebGPU)");
+    emberglassEngine=null; modelMode="webgpu"; engineLabel="vibethinker-3b (webgpu mlc)"; onModelReady("VibeThinker-3B · WebGPU (MLC)");
   } catch(e){
     gateProgress.classList.add("hidden"); gateOptions.classList.remove("hidden"); setPill("error","model: failed");
-    setStatus(`In-browser load failed: <b>${esc(e.message||String(e))}</b>.<br>The tuned MLC build may not be published yet — use <b>Connect a local model</b> below, or check the <a href="https://github.com/maceip/vibebounty" target="_blank" rel="noopener">repo</a>.`, "err");
+    const hint=local
+      ? `Tried <code>${esc(modelBase)}/mlc-chat-config.json</code>. Serve the MLC folder on localhost, or pass <code>?mlc=http://127.0.0.1:PORT/path</code>.`
+      : "The HF MLC repo may not be public yet.";
+    setStatus(`In-browser load failed: <b>${esc(e.message||String(e))}</b><br>${hint} <button id="demo-fallback" class="inline-action">Start instant demo</button>`, "err");
+    $("#demo-fallback")?.addEventListener("click",startDemo);
   }
 }
 
@@ -262,10 +375,11 @@ async function connectLocal(){
     const t=await fetch(url+"/chat/completions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:mdl,messages:[{role:"user",content:"ping"}],max_tokens:1,stream:false})});
     if(!t.ok) throw new Error("HTTP "+t.status);
     await t.json();
-    localBase=url; localModel=mdl; modelMode="local"; engineLabel=`${mdl} (local)`; onModelReady(`${mdl} · local endpoint`);
+    localBase=url; localModel=mdl; emberglassEngine=null; modelMode="local"; engineLabel=`${mdl} (local)`; onModelReady(`${mdl} · local endpoint`);
   } catch(e){
     setPill("error","model: failed");
-    setStatus(`Couldn't reach <b>${esc(url)}</b>: ${esc(e.message||String(e))}.<br>Make sure it's running and allows CORS from <code>${esc(location.origin)}</code>.`, "err");
+    setStatus(`Couldn't reach <b>${esc(url)}</b>: ${esc(e.message||String(e))}.<br>Make sure it's running and allows CORS from <code>${esc(location.origin)}</code>. <button id="local-demo-fallback" class="inline-action">Start instant demo</button>`, "err");
+    $("#local-demo-fallback")?.addEventListener("click",startDemo);
   }
 }
 function onModelReady(label){
@@ -273,11 +387,80 @@ function onModelReady(label){
   $("#engine-chip").textContent="engine: "+engineLabel;
   setStatus("Model ready — triaging the queue.","ok");
   setTimeout(()=>{ gate.classList.add("gone"); }, 650);
+  if(!reports.size) seedInbox();
   pump();   // triage everything queued behind the gate
+}
+
+const DEMO_MODE = new URLSearchParams(location.search).has("demo");
+const DEMO_STEPS = [
+  {
+    title: "Real bug → Valid verdict",
+    body: "Open the IDOR report (invoice PDF download). The sidecar reads the PoC, checks claims against ground truth, and returns Valid · Impactful — like a senior analyst, in seconds.",
+    action: () => selectReportByTitle(/IDOR/i),
+    lookFor: "Valid · Impactful",
+  },
+  {
+    title: "Slop → Rejected",
+    body: "Open the nuclei scanner dump. Same queue, same UI — but the sidecar classifies raw scanner output as Slop / Spam, not a payout-worthy finding.",
+    action: () => selectReportByTitle(/multiple critical vulnerabilities/i),
+    lookFor: "Slop",
+  },
+  {
+    title: "Surge → Intel corroborates",
+    body: "Hit Simulate surge — nine lodash duplicate reports flood the inbox. Open one: threat-intel confirms the CVE, so duplicates become Corroborated Surge instead of noise.",
+    action: async () => {
+      if(!reportsListHas(/lodash/i)) await runSurgeDemo();
+      selectReportByTitle(/lodash/i);
+    },
+    lookFor: "Corroborated Surge",
+  },
+];
+let demoStep = 0;
+
+function reportsListHas(re){ return [...reports.values()].some(r => re.test(r.title)); }
+function selectReportByTitle(re){
+  const hit = [...reports.values()].find(r => re.test(r.title));
+  if(hit){ select(hit.id); toast("Opened: "+hit.title.slice(0,48)); return true; }
+  toast("Report not found — try Next step or pick from inbox"); return false;
+}
+async function runSurgeDemo(){
+  ingest(SURGE_LIB, null, platform);
+  for(const t of SURGE_VARIANTS){
+    ingest({...SURGE_LIB, title:t, description:"Quick report: app.example.com bundles lodash@4.17.15 which has a known prototype pollution vulnerability. Please update.", steps_to_reproduce:"Check bundle; lodash 4.17.15 present."}, null, platform);
+    await new Promise(r=>setTimeout(r,120));
+  }
+  toast("Surge queued — watch badges update");
+}
+function renderDemoGuide(){
+  const el=$("#demo-guide"); if(!el||!DEMO_MODE) return;
+  el.classList.remove("hidden");
+  const s=DEMO_STEPS[demoStep];
+  $("#demo-step-label").textContent=`Step ${demoStep+1} of ${DEMO_STEPS.length}`;
+  $("#demo-step-title").textContent=s.title;
+  $("#demo-step-body").textContent=s.body;
+  $("#demo-step-next").textContent = demoStep >= DEMO_STEPS.length-1 ? "Restart demo" : "Next step →";
+}
+function initDemoMode(){
+  gate.classList.add("demo-mode");
+  $("#gate-title").textContent="3-step live demo";
+  $("#gate-sub").innerHTML="Click <b>Start instant demo</b> — no download, no WebGPU wait. A floating guide walks you through three beats: real bug, slop rejection, surge + threat intel.";
+  $("#demo-step-go").addEventListener("click", ()=>{ DEMO_STEPS[demoStep].action(); });
+  $("#demo-step-next").addEventListener("click", ()=>{ demoStep = demoStep >= DEMO_STEPS.length-1 ? 0 : demoStep+1; renderDemoGuide(); });
+  $("#demo-guide-hide").addEventListener("click", ()=>$("#demo-guide").classList.add("hidden"));
+  renderDemoGuide();
+  startDemo();
 }
 
 /* ============================ boot ============================ */
 $("#ctx-platform").textContent=PLATFORM_LABEL[platform];
-SEEDS.slice(0,6).forEach((s)=>ingest(s, null, platform));   // populate inbox (stays "queued" until a model loads)
-openGate();
+function seedInbox(){
+  if(DEMO_MODE){
+    ingest(DEMO_LEAD, null, platform); // IDOR
+    ingest(SEEDS[10], null, platform); // nuclei slop
+    return;
+  }
+  ingest(DEMO_LEAD, null, platform); // IDOR only — CPU model is slow
+}
+if(DEMO_MODE) initDemoMode();
+else openGate();
 

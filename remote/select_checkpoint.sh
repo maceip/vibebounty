@@ -14,6 +14,10 @@
 #   CKPTS="800 1200 1600 2000" DEV_N=48 bash remote/select_checkpoint.sh
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=constants.sh
+source "$SCRIPT_DIR/constants.sh"
+
 REPO="$HOME/vibethinker/bb-triage"
 BB="$HOME/bbverifier"
 PY="$BB/.venv/bin/python"
@@ -23,7 +27,8 @@ MODEL="WeiboAI/VibeThinker-3B"
 PORT="${PORT:-8080}"
 CKPTS="${CKPTS:-600 800 1000 1200 1400 1600 1800 2000}"
 DEV_N="${DEV_N:-48}"
-MAXTOK="${MODEL_MAX_TOKENS:-8000}"   # same budget the final eval uses
+WORKERS="${EVAL_WORKERS:-$EVAL_WORKERS_MLX}"
+MAXTOK="${MODEL_MAX_TOKENS:-$TRIAGE_MAX_TOKENS}"
 SEL="$BB/adapters_sel"               # scratch adapter dir we point the server at
 RESULTS="$REPO/eval/ckpt_sweep.tsv"
 
@@ -62,9 +67,12 @@ for it in $CKPTS; do
   cp -f "$f" "$SEL/adapters.safetensors"
   serve "$SEL" || continue
   rm -f eval/report.json
-  MODEL_MAX_TOKENS="$MAXTOK" MODEL_NO_FALLBACK=1 MODEL_TEMPERATURE=0 MODEL_TOP_P=1.0 MODEL_TIMEOUT=600 \
-    "$PY" eval/run_eval.py --data "$DEV" --n "$DEV_N" \
-    --model-base-url "http://localhost:$PORT/v1" >/dev/null 2>&1
+  echo "  scoring ckpt $it ($DEV_N reports, workers=$WORKERS) ..."
+  MODEL_BASE_URL="http://localhost:$PORT/v1" MODEL_NAME="$MODEL" \
+    MODEL_MAX_TOKENS="$MAXTOK" MODEL_NO_FALLBACK=1 MODEL_TEMPERATURE=0 MODEL_TOP_P=1.0 \
+    MODEL_TIMEOUT="$TRIAGE_MODEL_TIMEOUT" \
+    "$PY" -u eval/run_eval.py --data "$DEV" --n "$DEV_N" \
+    --model-base-url "http://localhost:$PORT/v1" --workers "$WORKERS"
   if [ ! -f eval/report.json ]; then
     printf "%-8s %s\n" "$it" "(eval failed, skipped)"; continue
   fi

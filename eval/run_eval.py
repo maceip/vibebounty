@@ -26,6 +26,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -53,10 +54,24 @@ def parse_user(content: str) -> dict:
     for ln in content.splitlines():
         if ln.startswith("Title: "):
             sub["title"] = ln[len("Title: "):].strip(); section = None
+        elif ln.startswith("Program: "):
+            program = ln[len("Program: "):].strip()
+            if program and not sub["asset"]:
+                sub["asset"] = program
+            section = None
+        elif ln.startswith("Asset type: "):
+            asset_type = ln[len("Asset type: "):].strip()
+            if asset_type:
+                sub["asset"] = (
+                    f"{sub['asset']} ({asset_type})" if sub["asset"] else asset_type
+                )
+            section = None
         elif ln.startswith("Claimed severity: "):
             sub["severity_claimed"] = ln[len("Claimed severity: "):].strip(); section = None
         elif ln.startswith("Asset: "):
             sub["asset"] = ln[len("Asset: "):].strip(); section = None
+        elif ln.strip() == "Report:":
+            section = "description"
         elif ln.strip() == "Description:":
             section = "description"
         elif ln.strip() == "Steps to reproduce:":
@@ -122,7 +137,10 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=None)
     ap.add_argument("--model-base-url", default=None,
                     help="serve a model here to score it; omit for offline baseline")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="parallel HTTP workers when scoring a served model (default 1)")
     args = ap.parse_args()
+    t0 = time.time()
 
     # Offline by default: unreachable model -> heuristic+defense; stub OSV network.
     os.environ["MODEL_BASE_URL"] = args.model_base_url or "http://127.0.0.1:9"
@@ -148,28 +166,51 @@ def main() -> None:
     rows = load_test(pathlib.Path(args.data), args.n)
     engine = None
     from collections import Counter
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     engine_counts: Counter = Counter()  # vibethinker vs heuristic-fallback
     cm: dict = {}                       # cm[gold][pred] = count
     sev_abs_err, sev_exact = [], 0
     accept_correct = 0
     surge_tp = surge_fn = 0             # did we catch corroborated reports?
-    n = 0
     total = len(rows)
-    for row in rows:
+    workers = max(1, int(args.workers)) if args.model_base_url else 1
+
+    def score_row(idx: int, row: dict) -> tuple[int, dict, dict]:
         res = run_fn(row["submission"])
+        return idx, row, res
+
+    results: list[tuple[int, dict, dict] | None] = [None] * total
+    if workers == 1:
+        for i, row in enumerate(rows):
+            results[i] = score_row(i, row)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = [pool.submit(score_row, i, row) for i, row in enumerate(rows)]
+            for fut in as_completed(futs):
+                idx, row, res = fut.result()
+                results[idx] = (idx, row, res)
+                pred = res["verdict"].get("disposition", "?")
+                g = row["gold"].get("disposition", "?")
+                print(f"[{idx + 1}/{total}] engine={res['engine']:<18} "
+                      f"pred={pred:<20} gold={g}", flush=True)
+
+    n = 0
+    for packed in results:
+        assert packed is not None
+        _, row, res = packed
         engine = res["engine"]
         engine_counts[engine] += 1
         pred = res["verdict"].get("disposition", "?")
         g = row["gold"].get("disposition", "?")
-        print(f"[{n + 1}/{total}] engine={engine:<18} pred={pred:<20} gold={g}", flush=True)
+        if workers == 1:
+            print(f"[{n + 1}/{total}] engine={engine:<18} pred={pred:<20} gold={g}", flush=True)
         cm.setdefault(g, {}).setdefault(pred, 0)
         cm[g][pred] += 1
-        # severity
         gs = SEV_ORD.get(row["gold"].get("severity_estimate", "none"), 0)
         ps = SEV_ORD.get(res["verdict"].get("severity_estimate", "none"), 0)
         sev_abs_err.append(abs(gs - ps))
         sev_exact += int(gs == ps)
-        # coarse accept/reject
         if (g in ACCEPT) == (pred in ACCEPT):
             accept_correct += 1
         if g == "corroborated_surge":
@@ -194,6 +235,13 @@ def main() -> None:
         "engine": engine,
         "engine_counts": dict(engine_counts),
         "model_drove_share": round(model_share, 4),
+        "eval_config": {
+            "data": str(pathlib.Path(args.data)),
+            "model_base_url": args.model_base_url,
+            "workers": workers,
+            "parallel_http": bool(args.model_base_url and workers > 1),
+        },
+        "elapsed_sec": round(time.time() - t0, 3),
         "n": n,
         "disposition_accuracy": round(acc, 4),
         "accept_reject_accuracy": round(accept_correct / n, 4) if n else 0.0,

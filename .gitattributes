@@ -1,0 +1,10 @@
+# Shell scripts and pipeline configs must be LF on disk (Linux/Mac targets).
+*.sh text eol=lf
+*.bash text eol=lf
+remote/constants.sh text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.plist text eol=lf
+
+# Windows-only helpers keep native endings.
+*.ps1 text eol=crlf

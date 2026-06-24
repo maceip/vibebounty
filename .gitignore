@@ -1,8 +1,36 @@
 # virtualenvs
 .venv/
 .venv-train/
+.venv-mlc-win/
+.venv-mlc-src/
+.venv-mlc/
+venv/
 __pycache__/
 *.pyc
+
+# compiled / native binaries (never commit)
+*.dll
+*.lib
+*.pyd
+*.so
+*.dylib
+*.exe
+*.o
+*.a
+*.bin
+*.gguf
+*.pt
+*.pth
+*.onnx
+*.tgz
+*.tar
+*.tar.gz
+*.zip
+
+# pulled model artifacts / weight bundles from the Mac or remote boxes
+mac_pull/
+models/
+dist/
 
 # secrets / keys
 .hftoken
@@ -31,4 +59,7 @@ eval/report_baseline.json
 eval/report_ckpt_*.json
 eval/ckpt_sweep.tsv
 eval/dev_slice.jsonl
+eval/report_model_lambda_coldstart.json
+eval/report_model_lambda_coldstart.md
+eval/scoreboard.jsonl
 logs/

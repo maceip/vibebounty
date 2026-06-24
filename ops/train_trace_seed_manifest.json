@@ -1,0 +1,41 @@
+{
+  "available_counts": {
+    "corroborated_surge": 1304,
+    "likely_duplicate": 273,
+    "out_of_scope": 390,
+    "slop": 26,
+    "valid_impactful": 3243,
+    "valid_low": 11726
+  },
+  "duplicate_user_rows_skipped": 45,
+  "malformed_skipped": 0,
+  "output": "data\\sft\\train_trace_seed.jsonl",
+  "purpose": "Correct the prior tune's valid_low collapse by generating long teacher traces for valid_impactful, corroborated_surge, duplicate, and out_of_scope examples while retaining valid_low calibration.",
+  "seed": 13,
+  "selected_counts": {
+    "corroborated_surge": 350,
+    "likely_duplicate": 150,
+    "out_of_scope": 150,
+    "slop": 26,
+    "valid_impactful": 450,
+    "valid_low": 350
+  },
+  "selected_total": 1476,
+  "sha256": "d92c6d9a3f9ec5c3db249e567004b038a4d04451da92a87d92d1b79a345c767d",
+  "shortfalls": {
+    "slop": {
+      "available": 26,
+      "selected": 26,
+      "target": 50
+    }
+  },
+  "source": "data\\sft\\train.jsonl",
+  "targets": {
+    "corroborated_surge": 350,
+    "likely_duplicate": 150,
+    "out_of_scope": 150,
+    "slop": 50,
+    "valid_impactful": 450,
+    "valid_low": 350
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "disposition_counts": {
+    "corroborated_surge": 8,
+    "likely_duplicate": 1,
+    "out_of_scope": 3,
+    "valid_impactful": 18,
+    "valid_low": 66
+  },
+  "evidence_pred_counts": {
+    "based": 1,
+    "corroborated_surge": 2,
+    "likely_duplicate": 7,
+    "out_of_scope": 8,
+    "self_inflicted": 1,
+    "slop": 4,
+    "theoretical_no_poc": 19,
+    "valid_impactful": 18,
+    "valid_low": 36
+  },
+  "failures": [
+    "leakage rate 2.08% > 0.00%"
+  ],
+  "faithful_counts": {
+    "False": 62,
+    "True": 34
+  },
+  "gates": {
+    "all_thinking_traces": true,
+    "long_reasoning": true,
+    "min_traces": true,
+    "no_outcome_leakage": false,
+    "parse_clean": true,
+    "tested_class_support": true
+  },
+  "leakage_rate": 0.020833,
+  "leakage_rows": 2,
+  "minority_gaps": {},
+  "no_think": 0,
+  "parse_fail": 0,
+  "rows": 96,
+  "test_counts": {
+    "corroborated_surge": 28,
+    "likely_duplicate": 6,
+    "out_of_scope": 3,
+    "valid_impactful": 54,
+    "valid_low": 209
+  },
+  "think_chars": {
+    "avg": 1428.6,
+    "max": 1911,
+    "min": 1134,
+    "p50": 1406,
+    "p90": 1645
+  },
+  "trace_file": "data\\sft\\pilot_natural.jsonl",
+  "trace_sha256": "feae151074863855c574ebe08115fa9bce735fba0b9dacd15f097027f1d797a6"
+}

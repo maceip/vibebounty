@@ -98,6 +98,10 @@ console.log("\n== rendering + parsing ==");
   check("normalize: word confidence -> number", v.confidence === 0.85, String(v.confidence));
   check("normalize: severity lowercased/validated", v.severity_estimate === "low", v.severity_estimate);
 }
+{
+  const v = normalizeVerdict({ disposition: "valid_impactful: real vuln with demonstrated impact.", severity_estimate: "HIGH" });
+  check("normalize: disposition enum prefix cleaned", v.disposition === "valid_impactful", v.disposition);
+}
 
 console.log(`\nTOTAL: ${pass}/${pass + fail} passed`);
 process.exit(fail === 0 ? 0 : 1);

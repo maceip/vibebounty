@@ -27,6 +27,7 @@ const BACKTICK_RE = /`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`/ig;
 const SECURITY_HINTS = ["vuln","inject","xss","rce","ssrf","idor","bypass","overflow","leak","exploit","csrf","pollution","traversal","deserial","auth","token","execute","crash","memory","function","cve","privilege","escalat","redirect","disclosure","credential","header","rate limit"];
 export const VALID = new Set(["valid_impactful","valid_low","corroborated_surge"]);
 const SEVERITIES = new Set(["none","low","medium","high","critical"]);
+const DISPOSITIONS = new Set(["valid_impactful","valid_low","corroborated_surge","likely_duplicate","out_of_scope","theoretical_no_poc","self_inflicted","accepted_risk","slop"]);
 const WORD_NUM = {"very high":0.95,"high":0.85,"medium":0.6,"moderate":0.6,"low":0.3,"very low":0.15,"none":0.1,"certain":0.99};
 const uniq = (a) => [...new Set(a)];
 const RECENCY_DAYS = 30;
@@ -113,7 +114,11 @@ export function normalizeVerdict(v){
   const out={...v};
   out.confidence = Math.max(0,Math.min(1,asFloat(v.confidence,0.5)));
   const sev=String(v.severity_estimate??"none").trim().toLowerCase(); out.severity_estimate = SEVERITIES.has(sev)?sev:"none";
-  out.disposition = String(v.disposition??"").trim().toLowerCase();
+  let disp = String(v.disposition??"").trim().toLowerCase();
+  if(!DISPOSITIONS.has(disp)){
+    disp = [...DISPOSITIONS].find(d => disp.startsWith(d + ":") || disp.startsWith(d + " ")) || "slop";
+  }
+  out.disposition = disp;
   out.is_duplicate_risk = !!v.is_duplicate_risk;
   out.questions_for_researcher = Array.isArray(v.questions_for_researcher)?v.questions_for_researcher:[];
   out.used_external_corroboration = !!v.used_external_corroboration;

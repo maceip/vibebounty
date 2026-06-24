@@ -91,15 +91,25 @@
   <div id="gate" class="gate">
     <div class="gate-card">
       <div class="gate-brand"><span class="brand-mark">⬡</span> VibeBounty</div>
-      <h1 class="gate-title">Load the triage model to continue</h1>
-      <p class="gate-sub">This console runs the tuned <b>VibeThinker-3B</b> bug-bounty triage model.
-        It <b>never runs on our servers</b> — choose how you want to run it:</p>
+      <h1 class="gate-title" id="gate-title">Start the triage sidecar</h1>
+      <p class="gate-sub" id="gate-sub">This console runs as a HackerOne-style queue with a browser-side triage sidecar.
+        Use the instant demo now, or connect the tuned <b>VibeThinker-3B</b> path when the model is available.</p>
 
       <div class="gate-options" id="gate-options">
+        <button class="gate-opt" id="opt-demo">
+          <span class="go-ic">▣</span>
+          <span class="go-h">Start instant demo <em>No download</em></span>
+          <span class="go-d">Runs the sidecar UI and deterministic defense layer directly in this page, so the demo works on GitHub Pages immediately.</span>
+        </button>
         <button class="gate-opt" id="opt-webgpu">
           <span class="go-ic">⚡</span>
-          <span class="go-h">Run in this browser <em>WebGPU</em></span>
-          <span class="go-d">Downloads once (~1.9&nbsp;GB), then runs fully on-device. No data leaves your machine. Needs Chrome/Edge 121+ or another WebGPU browser.</span>
+          <span class="go-h">WebGPU · MLC <em>web-llm</em></span>
+          <span class="go-d">Loads the converted MLC/WebLLM build. On localhost, serve the MLC folder; on GitHub Pages, fetches the public HF repo. Needs Chrome/Edge 121+ with <code>subgroups</code>-free MLC runtime.</span>
+        </button>
+        <button class="gate-opt" id="opt-emberglass">
+          <span class="go-ic">🜂</span>
+          <span class="go-h">WebGPU · Emberglass <em>custom WGSL + LoRA</em></span>
+          <span class="go-d">Uses the hand-built int4 WebGPU harness from <a href="https://github.com/maceip/qwen-webgpu-lora" target="_blank" rel="noopener">qwen-webgpu-lora</a>. Streams base weights from Hugging Face, optional same-origin LoRA hot-swap. Needs WebGPU + <code>subgroups</code>.</span>
         </button>
         <button class="gate-opt" id="opt-local">
           <span class="go-ic">⌘</span>
@@ -118,11 +128,11 @@
       <div id="gate-local" class="gate-local hidden">
         <div class="gl-row">
           <label>OpenAI-compatible base URL</label>
-          <input id="local-url" value="http://localhost:8080/v1" spellcheck="false" />
+          <input id="local-url" value="http://127.0.0.1:8080/v1" spellcheck="false" />
         </div>
         <div class="gl-row">
           <label>Model name</label>
-          <input id="local-model" value="WeiboAI/VibeThinker-3B" spellcheck="false" />
+          <input id="local-model" value="VibeThinker-3B-BugBounty-Triage" spellcheck="false" />
         </div>
         <div class="gl-actions">
           <button id="local-back" class="btn">‹ Back</button>
@@ -130,9 +140,18 @@
         </div>
         <details class="gl-help">
           <summary>How do I serve it locally?</summary>
-          <pre>// MLX (Apple silicon) — the tuned adapter:
-mlx_lm.server --model WeiboAI/VibeThinker-3B \
-  --adapter-path adapters --port 8080
+          <pre>// Windows — from bb-triage repo:
+powershell -File scripts/serve_local.ps1
+
+// Gate fields:
+//   URL:   http://127.0.0.1:8080/v1
+//   model: VibeThinker-3B-BugBounty-Triage
+
+// Manual (merged or base+adapter on disk):
+python remote/serve_vibethinker.py \
+  --model C:\Users\mac\qwen-webgpu-lora\model \
+  --adapter mac_pull\highconf_sanitized_20260623\extracted\adapters\highconf-sanitized-20260623 \
+  --port 8080
 
 // Ollama:
 OLLAMA_ORIGINS='*' ollama serve   # then: ollama run &lt;model&gt;
@@ -151,6 +170,23 @@ vllm serve &lt;model&gt; --port 8080</pre>
         <a href="https://github.com/maceip/vibebounty" target="_blank" rel="noopener">Source ↗</a>
         <span class="dotsep">·</span>
         <span class="gate-priv">runs on-device — nothing is uploaded</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live 3-step demo guide (?demo=1) -->
+  <div id="demo-guide" class="demo-guide hidden">
+    <div class="demo-guide-inner">
+      <div class="demo-guide-head">
+        <span class="demo-guide-label">Live demo</span>
+        <span class="demo-guide-step" id="demo-step-label">Step 1 of 3</span>
+        <button class="demo-guide-x" id="demo-guide-hide" title="Hide guide">×</button>
+      </div>
+      <h3 class="demo-guide-title" id="demo-step-title">Real report → real verdict</h3>
+      <p class="demo-guide-body" id="demo-step-body">Open the IDOR report in the inbox. The sidecar triages it as Valid · Impactful with claim checks — no integration required.</p>
+      <div class="demo-guide-actions">
+        <button class="btn btn-primary" id="demo-step-go">Show me</button>
+        <button class="btn" id="demo-step-next">Next step →</button>
       </div>
     </div>
   </div>

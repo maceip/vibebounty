@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
 # Validate the LoRA tune on the Mac, end to end, from the git-synced repo.
-#   1. serve base VibeThinker-3B + the trained adapter (mlx_lm.server)
-#   2. defense suite (offline, model-independent guardrails) -> must stay 6/6
-#   3. score the SERVED tuned model on held-out reports, greedy + bounded budget
-#   4. score the heuristic+defense baseline on the SAME reports
-#   5. print the lift + the share of verdicts the MODEL actually drove
-#
-# Usage:  bash validate_tune.sh [N]      (N = held-out reports to score, default 20)
 set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=constants.sh
+source "$SCRIPT_DIR/constants.sh"
 
 REPO="$HOME/vibethinker/bb-triage"
 PY="$HOME/bbverifier/.venv/bin/python"
@@ -52,25 +48,10 @@ fi
 echo; echo "== defense suite (offline, model-independent) =="
 "$PY" eval/adversarial.py
 
-# ---- 3. score the SERVED tuned model -------------------------------------
-# VibeThinker is a REASONING model: it emits a long <think> phase FIRST and the
-# JSON answer only AFTER it. A small budget truncates it mid-think -> empty
-# content -> parse fail. Give it real room (8000) and DISABLE the heuristic
-# fallback so a parse miss counts against the MODEL, not as a hidden baseline win.
-MAXTOK="${MODEL_MAX_TOKENS:-8000}"
-NOFB="${MODEL_NO_FALLBACK:-1}"
-echo; echo "== tuned model on $N held-out reports (greedy, max_tokens=$MAXTOK, no-fallback=$NOFB) =="
-rm -f eval/report.json eval/report.md   # never let a stale report masquerade as the model's
-if ! MODEL_MAX_TOKENS="$MAXTOK" MODEL_NO_FALLBACK="$NOFB" MODEL_TEMPERATURE=0 MODEL_TOP_P=1.0 MODEL_TIMEOUT=600 \
-     "$PY" eval/run_eval.py --data "$DATA" --n "$N" \
-     --model-base-url "http://localhost:$PORT/v1"; then
-  echo; echo "!! model eval FAILED (see traceback above). Aborting before the lift step"
-  echo "   so we do not report a bogus comparison."
-  exit 1
-fi
-[ -f eval/report.json ] || { echo "!! model eval produced no report.json; aborting"; exit 1; }
-cp -f eval/report.json eval/report_model.json
-cp -f eval/report.md   eval/report_model.md 2>/dev/null
+# ---- 3. score the SERVED tuned model (canonical eval gate) -----------------
+echo; echo "== tuned model eval gate (greedy, max_tokens=$TRIAGE_MAX_TOKENS) =="
+BB="$HOME/bbverifier" REPO="$REPO" PY="$PY" PORT="$PORT" \
+  bash "$SCRIPT_DIR/eval_model.sh" "$N" || exit 1
 
 # ---- 4. score the heuristic+defense baseline on the SAME reports ---------
 echo; echo "== heuristic+defense baseline on the same $N reports =="

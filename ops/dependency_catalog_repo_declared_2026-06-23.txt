@@ -1,0 +1,91 @@
+REPO_DECLARED_DEPENDENCIES
+timestamp=2026-06-23T13:54:13.8355509-07:00
+
+===== pyproject.toml =====
+MISSING
+
+===== requirements.txt =====
+openai>=1.30.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
+
+===== requirements-dev.txt =====
+MISSING
+
+===== package.json =====
+MISSING
+
+===== package-lock.json =====
+MISSING
+
+===== uv.lock =====
+MISSING
+
+===== environment.yml =====
+MISSING
+
+===== remote/lora_config.yaml =====
+# MLX-LM LoRA config for fine-tuning VibeThinker-3B into a bug-bounty triage model.
+# Canonical, version-controlled copy. remote/setup_mac.sh / launch_train.sh copy
+# this into ~/bbverifier/lora_config.yaml so the training config never drifts
+# from the repo.
+model: "WeiboAI/VibeThinker-3B"
+train: true
+
+# Data dir must contain train.jsonl and valid.jsonl (chat / messages format),
+# built by data/rebuild_sft_from_jsonl.py on the NATURAL label distribution
+# (the build asserts train share ~= held-out test share).
+data: "data/sft"
+
+fine_tune_type: lora
+optimizer: adamw
+seed: 13
+
+# Apply LoRA to all 36 transformer blocks for richer adaptation (M5 has headroom).
+num_layers: 36
+
+batch_size: 8
+iters: 2000
+# 4096 (was 2048): a long report + system prompt could exceed 2048 and, with
+# mask_prompt, truncate the assistant JSON target out of the sequence entirely
+# -> rows that contribute no usable supervision. 4096 fits comfortably on 128GB.
+max_seq_length: 4096
+grad_checkpoint: true
+
+learning_rate: 1.0e-4
+# LR warmup + cosine decay. Without warmup, LR 1.0e-4 hits on step 1 and — with
+# the larger 4096 context (more tokens/step -> bigger early gradients) — the loss
+# diverged hard (spiked to ~13 by iter 30 before slowly recovering). Warm up over
+# 150 steps from ~1e-6 to the 1e-4 peak, then cosine-decay to 1e-6 across the run.
+lr_schedule:
+  name: cosine_decay
+  warmup: 150
+  warmup_init: 1.0e-6
+  arguments: [1.0e-4, 2000, 1.0e-6]
+# Only learn from the assistant turn, not the (long) system+report prompt.
+mask_prompt: true
+
+steps_per_report: 10
+steps_per_eval: 200
+val_batches: 25
+# Save every 200 iters so remote/select_checkpoint.sh can pick the checkpoint
+# that maximizes held-out accept/reject accuracy instead of blindly shipping the
+# final (often over-trained) iter.
+save_every: 200
+
+adapter_path: "adapters"
+
+lora_parameters:
+  keys:
+    - "self_attn.q_proj"
+    - "self_attn.k_proj"
+    - "self_attn.v_proj"
+    - "self_attn.o_proj"
+    - "mlp.gate_proj"
+    - "mlp.up_proj"
+    - "mlp.down_proj"
+  rank: 16
+  scale: 20.0
+  dropout: 0.0
+

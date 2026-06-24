@@ -30,10 +30,10 @@ MODEL_API_KEY = os.environ.get("MODEL_API_KEY", "not-needed")
 # Triage is a CLASSIFICATION task: decode greedily so the verdict is deterministic
 # and production behavior == eval behavior. (The base model's creative-sampling
 # defaults of temp=1.0/top_p=0.95 made prod noisier than what we measured.)
-MODEL_MAX_TOKENS = int(os.environ.get("MODEL_MAX_TOKENS", "8000"))
+MODEL_MAX_TOKENS = int(os.environ.get("MODEL_MAX_TOKENS", "4096"))
 MODEL_TEMPERATURE = float(os.environ.get("MODEL_TEMPERATURE", "0.0"))
 MODEL_TOP_P = float(os.environ.get("MODEL_TOP_P", "1.0"))
-MODEL_TIMEOUT = float(os.environ.get("MODEL_TIMEOUT", "120"))
+MODEL_TIMEOUT = float(os.environ.get("MODEL_TIMEOUT", "300"))
 
 VALID = {"valid_impactful", "valid_low", "corroborated_surge"}
 SEVERITIES = {"none", "low", "medium", "high", "critical"}
@@ -263,6 +263,32 @@ def _apply_defenses(verdict: dict, corr: dict, ev: dict, submission: dict | None
             "feed corroborates it. " + str(verdict.get("reasoning", ""))
         )
         verdict["confidence"] = max(_as_float(verdict.get("confidence"), 0.5), 0.9)
+
+    # 1b) Concrete PoC/repro evidence should not be thrown away as spam/scope
+    #     noise unless verification refutes it. This keeps low-severity bounty
+    #     reports in the human-review lane instead of over-pruning them.
+    if (
+        submission is not None
+        and verdict.get("disposition") in ("slop", "out_of_scope")
+        and not corr.get("matched")
+        and ev.get("hint") != "fabricated"
+    ):
+        text = " ".join(
+            str(submission.get(k, "") or "")
+            for k in ("title", "description", "steps_to_reproduce", "impact", "asset")
+        )
+        scannerish = re.search(r"\b(nuclei|scanner|masscan|nessus|openvas)\b", text, re.I)
+        if _POC_RE.search(text) and not scannerish:
+            verdict["disposition"] = "valid_low"
+            if verdict.get("severity_estimate") in ("none", "", None):
+                verdict["severity_estimate"] = "low"
+            verdict["reasoning"] = (
+                "Report contains concrete PoC/repro evidence (steps, request, payload, "
+                "code, or URL) and was not refuted by claim verification, so it should "
+                "not be discarded as slop or scope noise. "
+                + str(verdict.get("reasoning", ""))
+            )
+            verdict["confidence"] = min(max(_as_float(verdict.get("confidence"), 0.5), 0.45), 0.7)
 
     # 2) External feed corroboration -> never call a known issue spam.
     if corr.get("matched") and verdict.get("disposition") in ("slop", "theoretical_no_poc"):
