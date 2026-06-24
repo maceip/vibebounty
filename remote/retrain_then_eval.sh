@@ -15,7 +15,7 @@
 # Usage:  caffeinate -dimsu bash remote/retrain_then_eval.sh
 set -uo pipefail
 
-REPO="$HOME/vibethinker/bb-triage"
+REPO="$HOME/vibebounty"
 BB="$HOME/bbverifier"
 PY="$BB/.venv/bin/python"
 SRC="$BB/data/sft_v1"        # OLD-format, natural-distribution source corpus
@@ -35,7 +35,7 @@ grep -aq "DISTRIBUTION GUARD PASSED" "$BB/logs/rebuild.log" || {
   echo "REBUILD_FAILED: guard did not pass. Aborting."; exit 3; }
 
 # ---- 2. train --------------------------------------------------------------
-cp -f "$REPO/remote/lora_config.yaml" "$BB/lora_config.yaml"
+cp -f "$REPO/configs/bugbounty_lora.yaml" "$BB/lora_config.yaml"
 cd "$BB"
 # Back up any prior adapters so the gate can't pick a stale checkpoint.
 if [ -d adapters ] && ls adapters/*.safetensors >/dev/null 2>&1; then

@@ -3,7 +3,7 @@
 set -e
 export PATH="$HOME/.local/bin:$PATH"
 cd ~/bbverifier
-perl -pi -e 's/\r$//' lora_config.yaml run_pipeline.sh
+perl -pi -e 's/\r$//' configs/bugbounty_lora.yaml run_pipeline.sh
 pkill -f mlx_lm.lora 2>/dev/null || true
 pkill -f 'hf download' 2>/dev/null || true
 pkill -f run_pipeline.sh 2>/dev/null || true

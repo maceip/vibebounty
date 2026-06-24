@@ -7,6 +7,11 @@ cd "${BB:-$HOME/bbverifier}"
 source "${PYENV:-$HOME/vt/bin/activate}"
 export TOKENIZERS_PARALLELISM=false
 
+if ! command -v emberglass-tune >/dev/null 2>&1; then
+  echo "[today] FATAL: pip install -e ../emberglass-tune"
+  exit 1
+fi
+
 DOC="ops/today_tune_preflight_2026-06-23.md"
 ASSETS="ops/expected_assets_2026-06-23.md"
 TRACE_FILE="${TRACE_FILE:-data/sft/train_traces.jsonl}"
@@ -22,7 +27,7 @@ test -f "$ASSETS" || { echo "[today] FATAL: missing expected asset doc $ASSETS";
 
 echo "[today] run_id=$RUN_ID"
 echo "[today] trace gate ..."
-python remote/trace_tune_gate.py \
+emberglass-tune gate-traces \
   --traces "$TRACE_FILE" \
   --test data/sft/test.jsonl \
   --out "ops/${RUN_ID}_trace_gate.json" \
@@ -31,18 +36,18 @@ python remote/trace_tune_gate.py \
   --min-per-tested-class "${MIN_PER_TESTED_CLASS:-40}"
 
 echo "[today] tokenization preflight ..."
-python remote/verify_sft_data.py \
+emberglass-tune verify \
   --model "$MODEL" \
   --data "$TRACE_FILE" \
   --min-usable "${MIN_USABLE:-500}"
 
 echo "[today] smoke train ..."
-python remote/train_sft.py --model "$MODEL" \
+emberglass-tune train --model "$MODEL" \
   --data "$TRACE_FILE" --out adapters/_smoke_trace_today \
   --limit 64 --max-steps 8 --bs 4 --grad-accum 2 --save-steps 8 --valid-frac 0.1
 
 echo "[today] full trace-aligned SFT ..."
-python remote/train_sft.py --model "$MODEL" \
+emberglass-tune train --model "$MODEL" \
   --data "$TRACE_FILE" \
   --out "$OUT_ADAPTER" \
   --epochs "${EPOCHS:-4}" \
@@ -53,7 +58,7 @@ python remote/train_sft.py --model "$MODEL" \
   --valid-frac "${VALID_FRAC:-0.05}"
 
 echo "[today] merge adapter ..."
-python remote/merge_lora.py --base "$MODEL" --adapter "$OUT_ADAPTER" --out "$OUT_MODEL"
+emberglass-tune merge --base "$MODEL" --adapter "$OUT_ADAPTER" --out "$OUT_MODEL"
 
 python - "$RUN_ID" "$TRACE_FILE" "$OUT_ADAPTER" "$OUT_MODEL" <<'PY'
 import hashlib, json, os, subprocess, sys

@@ -1,8 +1,8 @@
-import torch
+#!/usr/bin/env python3
+"""Shim — implementation moved to emberglass-tune."""
+import runpy
+from pathlib import Path
 
-print("torch", torch.__version__)
-print("cuda?", torch.cuda.is_available())
-if torch.cuda.is_available():
-    print("device", torch.cuda.get_device_name(0))
-    print("capability", torch.cuda.get_device_capability(0))
-    print("bf16", torch.cuda.is_bf16_supported())
+import emberglass_tune
+
+runpy.run_path(str(Path(emberglass_tune.__file__).parent / "gpu_check.py"), run_name="__main__")

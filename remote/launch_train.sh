@@ -6,7 +6,7 @@ export PATH="$HOME/.local/bin:$PATH"
 export HF_HUB_DISABLE_XET=1
 export HF_HUB_ENABLE_HF_TRANSFER=1
 cd ~/bbverifier
-perl -pi -e 's/\r$//' lora_config.yaml
+perl -pi -e 's/\r$//' configs/bugbounty_lora.yaml
 mkdir -p logs adapters
 
 if pgrep -f mlx_lm.lora >/dev/null; then
@@ -15,7 +15,7 @@ if pgrep -f mlx_lm.lora >/dev/null; then
   exit 0
 fi
 
-nohup .venv/bin/mlx_lm.lora --config lora_config.yaml > logs/train.log 2>&1 &
+nohup .venv/bin/mlx_lm.lora --config configs/bugbounty_lora.yaml > logs/train.log 2>&1 &
 echo "STARTED_PID=$!"
 sleep 10
 echo "--- early log ---"

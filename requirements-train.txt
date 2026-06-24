@@ -1,0 +1,3 @@
+# Use uv — see pyproject.toml
+#   uv sync
+#   uv run emberglass-tune --help

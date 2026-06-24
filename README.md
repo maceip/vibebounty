@@ -1,5 +1,23 @@
 # VibeBounty — a defense-hardened bug-bounty triage sidecar
 
+## Three repos
+
+| Repo | Role |
+|---|---|
+| **[emberglass](../emberglass)** | Optimized **WebGPU inference** for VibeThinker-3B |
+| **[emberglass-tune](../emberglass-tune)** | **Tune + eval** (MLX / CUDA) |
+| **[vibebounty](https://github.com/maceip/vibebounty)** (this) | Bug-bounty **demo** + domain tune + HackerOne UI |
+
+Training pipeline (MLX, CUDA, Anthropic traces): **[emberglass-tune README](https://github.com/maceip/emberglass-tune)**.
+
+```bash
+cd ~/vibebounty
+uv sync
+uv run emberglass-tune --help
+```
+
+---
+
 A locally fine-tuned **VibeThinker-3B** that triages vulnerability-disclosure
 reports — filtering the noise (self-XSS, no-PoC, scanner/AI slop, accepted risk)
 and surfacing the genuinely impactful ones, **with a rationale** — and hardened so

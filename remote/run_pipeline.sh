@@ -33,7 +33,7 @@ if [ -f adapters/adapters.safetensors ]; then
   echo "[train] SKIP - adapters/adapters.safetensors already present"
 else
   echo "[train] START $(date)"
-  .venv/bin/mlx_lm.lora --config lora_config.yaml || { echo "[pipeline] ABORT: train failed"; exit 2; }
+  .venv/bin/mlx_lm.lora --config configs/bugbounty_lora.yaml || { echo "[pipeline] ABORT: train failed"; exit 2; }
   echo "[train] END $(date)"
 fi
 

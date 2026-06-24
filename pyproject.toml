@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vibebounty"
+version = "0.1.0"
+description = "Bug-bounty triage demo — tuned VibeThinker-3B + HackerOne UI."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+  "emberglass-tune",
+  "openai>=1.30.0",
+  "fastapi>=0.110.0",
+  "uvicorn[standard]>=0.29.0",
+]
+
+[dependency-groups]
+serve = [
+  "torch>=2.2",
+  "transformers>=4.44",
+  "peft>=0.12",
+  "accelerate>=0.33",
+  "safetensors>=0.4",
+]
+
+[tool.uv.sources]
+emberglass-tune = { path = "../emberglass-tune", editable = true }
+
+[tool.uv]
+package = false
